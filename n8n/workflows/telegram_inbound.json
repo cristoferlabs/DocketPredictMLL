@@ -1,0 +1,55 @@
+{
+  "name": "telegram_inbound",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message", "callback_query"]
+      },
+      "id": "tg-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "webhookId": "agente-telegram-inbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ========== CONFIG: edita solo esta URL (sin barra final) ==========\nconst API_BASE_URL = 'https://itself-ryan-saint-envelope.trycloudflare.com';\n// Obtenerla con: scripts\\start-api-tunnel.bat (API local + n8n Cloud)\n// O usa tu URL de Railway cuando despliegues.\n// ====================================================================\n\nconst raw = $input.first().json;\nconst update = raw.update_id != null ? raw : (raw.body && raw.body.update_id != null ? raw.body : raw);\nreturn [{ json: { apiBaseUrl: API_BASE_URL.replace(/\\/$/, ''), update } }];"
+      },
+      "id": "normalize-update",
+      "name": "Config y Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.apiBaseUrl }}/webhooks/telegram",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.update }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "call-api",
+      "name": "Call Agente API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [620, 300]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Config y Normalize", "type": "main", "index": 0 }]]
+    },
+    "Config y Normalize": {
+      "main": [[{ "node": "Call Agente API", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Telegram → FastAPI. Sin plan Variables: edita API_BASE_URL en el nodo 'Config y Normalize'. URL publica HTTPS obligatoria (no 127.0.0.1). Solo UN Telegram Trigger activo por bot."
+  }
+}

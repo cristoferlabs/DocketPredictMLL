@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agente-betting-engine"
+version = "0.1.0"
+description = "Self-improving probabilistic betting engine for football predictions"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "supabase>=2.10.0",
+    "httpx>=0.28.0",
+    "redis>=5.2.0",
+    "arq>=0.26.0",
+    "numpy>=2.1.0",
+    "scipy>=1.14.0",
+    "pandas>=2.2.0",
+    "scikit-learn>=1.5.0",
+    "xgboost>=2.1.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["apps"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

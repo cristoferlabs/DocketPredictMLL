@@ -1,0 +1,75 @@
+{
+  "name": "daily_sync_trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-daily",
+      "name": "Daily 06:00 UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.RAILWAY_API_URL }}/jobs/ingest-fixtures",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"days_ahead\": 7 }",
+        "options": {}
+      },
+      "id": "ingest-fixtures",
+      "name": "Ingest Fixtures",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.RAILWAY_API_URL }}/jobs/predict-upcoming",
+        "options": {}
+      },
+      "id": "predict-upcoming",
+      "name": "Predict Upcoming",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 380]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.RAILWAY_API_URL }}/jobs/evaluate-pending",
+        "options": {}
+      },
+      "id": "evaluate-pending",
+      "name": "Evaluate Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 520]
+    }
+  ],
+  "connections": {
+    "Daily 06:00 UTC": {
+      "main": [
+        [
+          { "node": "Ingest Fixtures", "type": "main", "index": 0 },
+          { "node": "Predict Upcoming", "type": "main", "index": 0 },
+          { "node": "Evaluate Pending", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

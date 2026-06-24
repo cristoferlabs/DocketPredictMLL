@@ -1,0 +1,486 @@
+{
+  "name": "Agente IA - Análisis Mundial 2026",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "ccd40974-91cd-4d32-a7e0-7e91e0bb06e2",
+      "name": "Diario 8:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -144,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a722154c-b2e0-442b-b774-803691dc314b",
+      "name": "Partidos Mundial 2026",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        80,
+        160
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "numberInputs": 5
+      },
+      "id": "ae28060f-96e5-41ce-90fb-8f6f0a0c4b63",
+      "name": "Combinar Fuentes de Datos",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        352,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "cfd9492d-d2a1-4317-bf5c-a7d2cbaa3ba9",
+      "name": "Historico 2022",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        80,
+        352
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "f2cb7be4-04d2-4972-9c73-736d5aebe7a7",
+      "name": "Historico 2018",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        80,
+        544
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst raw2026 = items[0]?.json || {};\nconst raw2022 = items[1]?.json || {};\nconst raw2018 = items[2]?.json || {};\nconst rawFDMatches = items[3]?.json || {};\nconst rawFDStandings = items[4]?.json || {};\n\n// ===== HELPERS FD =====\nfunction nameMatch(a, b) {\n  if (!a || !b) return false;\n  const n = s => s.toLowerCase().replace(/[^a-z]/g, '');\n  const na = n(a), nb = n(b);\n  return na === nb || na.includes(nb) || nb.includes(na);\n}\n\nfunction getTeamForm(teamName, limit=5) {\n  const matches = (rawFDMatches.matches || [])\n    .filter(m => nameMatch(m.homeTeam?.name, teamName) || nameMatch(m.homeTeam?.shortName, teamName) ||\n                 nameMatch(m.awayTeam?.name, teamName) || nameMatch(m.awayTeam?.shortName, teamName))\n    .filter(m => m.score?.fullTime?.home !== null && m.score?.fullTime?.home !== undefined)\n    .sort((a, b) => new Date(b.utcDate) - new Date(a.utcDate))\n    .slice(0, limit);\n  return matches.map(m => {\n    const isHome = nameMatch(m.homeTeam?.name, teamName) || nameMatch(m.homeTeam?.shortName, teamName);\n    const s = m.score.fullTime;\n    const tf = isHome ? s.home : s.away;\n    const og = isHome ? s.away : s.home;\n    const opp = isHome ? (m.awayTeam?.shortName || m.awayTeam?.name) : (m.homeTeam?.shortName || m.homeTeam?.name);\n    const res = tf > og ? 'V' : tf === og ? 'E' : 'D';\n    return { fecha: m.utcDate?.split('T')[0], rival: opp, resultado: res, marcador: `${tf}-${og}` };\n  });\n}\n\nfunction getTeamStanding(teamName) {\n  for (const group of (rawFDStandings.standings || [])) {\n    for (const row of (group.table || [])) {\n      if (nameMatch(row.team?.name, teamName) || nameMatch(row.team?.shortName, teamName)) {\n        return {\n          grupo: (group.group || '').replace('GROUP_', 'Grupo ') || group.stage,\n          posicion: row.position, puntos: row.points,\n          jugados: row.playedGames, victorias: row.won,\n          empates: row.draw, derrotas: row.lost,\n          gf: row.goalsFor, gc: row.goalsAgainst\n        };\n      }\n    }\n  }\n  return null;\n}\n\n// ===== ELO =====\nfunction calcElo(r18, r22, r26) {\n  const ratings = {};\n  function getElo(team) { if (!ratings[team]) ratings[team] = 1500; return ratings[team]; }\n  function processRounds(rounds, baseK) {\n    const allMatches = [];\n    for (const round of (rounds || [])) {\n      for (const m of (round.matches || [])) {\n        if (m.score?.ft && m.date) allMatches.push({ ...m, roundName: round.name });\n      }\n    }\n    allMatches.sort((a, b) => new Date(a.date) - new Date(b.date));\n    for (const m of allMatches) {\n      const t1 = m.team1?.name, t2 = m.team2?.name;\n      if (!t1 || !t2) continue;\n      const r1 = getElo(t1), r2 = getElo(t2);\n      const [g1, g2] = m.score.ft;\n      const e1 = 1 / (1 + Math.pow(10, (r2 - r1) / 400));\n      const s1 = g1 > g2 ? 1 : g1 === g2 ? 0.5 : 0;\n      const gd = Math.abs(g1 - g2);\n      const gdMult = gd <= 1 ? 1 : gd === 2 ? 1.5 : Math.min(1.75 + (gd - 3) * 0.25, 2.5);\n      const rn = (m.roundName || '').toLowerCase();\n      const isKO = rn.includes('round of') || rn.includes('quarter') || rn.includes('semi') || rn.includes('final');\n      const k = isKO ? baseK * 1.5 : baseK;\n      ratings[t1] = Math.round(r1 + k * gdMult * (s1 - e1));\n      ratings[t2] = Math.round(r2 + k * gdMult * ((1 - s1) - (1 - e1)));\n    }\n  }\n  processRounds(r18, 30);\n  processRounds(r22, 32);\n  processRounds(r26, 40);\n  return ratings;\n}\n\n// ===== xG ESTIMADO =====\nfunction estimateXG(form, stats) {\n  const avg22 = parseFloat(stats.wc2022?.avgGF || 0);\n  const avg18 = parseFloat(stats.wc2018?.avgGF || 0);\n  const histAvg = avg22 > 0 && avg18 > 0 ? avg22 * 0.6 + avg18 * 0.4\n                : avg22 > 0 ? avg22 : avg18 > 0 ? avg18 : 1.0;\n  if (!form || form.length === 0) return +histAvg.toFixed(2);\n  const formGF = form.reduce((s, m) => s + parseInt((m.marcador||'0-0').split('-')[0] || 0), 0) / form.length;\n  return +(formGF * 0.6 + histAvg * 0.4).toFixed(2);\n}\n\n// ===== LOCAL/VISITANTE =====\nconst HOSTS = {\n  'United States': { label: '🏠 Local (sede principal)', boost: 0.15 },\n  'USA': { label: '🏠 Local (sede principal)', boost: 0.15 },\n  'Mexico': { label: '🏠 Co-sede', boost: 0.08 },\n  'Canada': { label: '🏠 Co-sede', boost: 0.08 }\n};\nfunction getHomeFactor(teamName) {\n  for (const [host, data] of Object.entries(HOSTS)) {\n    if (nameMatch(teamName, host)) return data;\n  }\n  return { label: '✈️ Visitante', boost: 0 };\n}\n\n// ===== SUSPENSIONES POR TARJETAS =====\nfunction getSuspensionRisk(teamName) {\n  const yellows = {};\n  for (const m of (rawFDMatches.matches || [])) {\n    const isTeam = nameMatch(m.homeTeam?.name, teamName) || nameMatch(m.homeTeam?.shortName, teamName) ||\n                   nameMatch(m.awayTeam?.name, teamName) || nameMatch(m.awayTeam?.shortName, teamName);\n    if (!isTeam) continue;\n    for (const b of (m.bookings || [])) {\n      const isOurs = nameMatch(b.team?.name, teamName) || nameMatch(b.team?.shortName, teamName);\n      if (!isOurs) continue;\n      if (b.card === 'YELLOW_CARD') {\n        const pn = b.player?.name || 'Desconocido';\n        yellows[pn] = (yellows[pn] || 0) + 1;\n      }\n    }\n  }\n  return {\n    suspendidos: Object.entries(yellows).filter(([,c]) => c >= 2).map(([n]) => n),\n    enRiesgo: Object.entries(yellows).filter(([,c]) => c === 1).map(([n]) => n)\n  };\n}\n\n// ===== NORMALIZAR =====\nfunction normalizeData(data) {\n  if (data.rounds && data.rounds.length > 0) return data;\n  if (!data.matches) return { rounds: [] };\n  const roundMap = {};\n  for (const m of data.matches) {\n    const rName = m.round || 'Unknown';\n    if (!roundMap[rName]) roundMap[rName] = { name: rName, matches: [] };\n    roundMap[rName].matches.push({ ...m, team1: typeof m.team1 === 'string' ? { name: m.team1 } : (m.team1 || {}), team2: typeof m.team2 === 'string' ? { name: m.team2 } : (m.team2 || {}) });\n  }\n  return { name: data.name, rounds: Object.values(roundMap) };\n}\n\nconst data2026 = normalizeData(raw2026);\nconst data2022 = normalizeData(raw2022);\nconst data2018 = normalizeData(raw2018);\nconst r2026 = data2026.rounds || [];\nconst r2022 = data2022.rounds || [];\nconst r2018 = data2018.rounds || [];\n\nconst eloRatings = calcElo(r2018, r2022, r2026);\n\n// ===== JUGADORES =====\nfunction extractPlayers(data, year) {\n  const players = {};\n  for (const match of (data.matches || [])) {\n    if (!match.score?.ft) continue;\n    const t1 = typeof match.team1 === 'string' ? match.team1 : match.team1?.name;\n    const t2 = typeof match.team2 === 'string' ? match.team2 : match.team2?.name;\n    const proc = (goals, team) => {\n      const mc = {};\n      for (const g of (goals || [])) {\n        if (g.owngoal) continue;\n        const n = g.name;\n        if (!players[n]) players[n] = { team, goals: 0, penalties: 0, hatTricks: 0, years: [] };\n        players[n].goals++; players[n].team = team;\n        if (g.penalty) players[n].penalties++;\n        if (!players[n].years.includes(year)) players[n].years.push(year);\n        mc[n] = (mc[n] || 0) + 1;\n      }\n      for (const [n, cnt] of Object.entries(mc)) { if (players[n] && cnt >= 3) players[n].hatTricks++; }\n    };\n    proc(match.goals1, t1); proc(match.goals2, t2);\n  }\n  return players;\n}\n\nfunction mergePlayers(...sources) {\n  const merged = {};\n  for (const [year, src] of sources) {\n    const w = year === 2026 ? 3 : year === 2022 ? 2 : 1;\n    for (const [name, s] of Object.entries(src)) {\n      if (!merged[name]) merged[name] = { team: s.team, goals: 0, penalties: 0, hatTricks: 0, score: 0, years: [] };\n      merged[name].goals += s.goals; merged[name].penalties += s.penalties; merged[name].hatTricks += s.hatTricks;\n      merged[name].score += (s.goals * w) + (s.hatTricks * 5 * w) + (s.penalties * 0.5 * w);\n      if (!merged[name].years.includes(year)) merged[name].years.push(year);\n    }\n  }\n  return merged;\n}\n\nconst allPlayers = mergePlayers(\n  [2026, extractPlayers(raw2026, 2026)],\n  [2022, extractPlayers(raw2022, 2022)],\n  [2018, extractPlayers(raw2018, 2018)]\n);\n\nfunction getTopScorers(team, topN=5) {\n  return Object.entries(allPlayers)\n    .filter(([_, s]) => s.team === team)\n    .sort((a, b) => b[1].score - a[1].score)\n    .slice(0, topN)\n    .map(([name, s]) => ({ nombre: name, goles: s.goals, penaltis: s.penalties, hatTricks: s.hatTricks, score: +s.score.toFixed(1), years: s.years }));\n}\n\nfunction teamQualityScore(team) {\n  const scorers = getTopScorers(team, 3);\n  return { score: +scorers.reduce((a, p) => a + p.score, 0).toFixed(1), topScorers: scorers };\n}\n\n// ===== ESTADISTICAS HISTORICAS =====\nfunction calcStats(rounds, teamName) {\n  let played=0, wins=0, draws=0, losses=0, gf=0, ga=0;\n  for (const round of (rounds||[])) {\n    for (const m of (round.matches||[])) {\n      if (!m.score?.ft) continue;\n      const t1=m.team1?.name, t2=m.team2?.name;\n      if (t1!==teamName && t2!==teamName) continue;\n      played++;\n      const [gh, gay] = m.score.ft;\n      if (t1===teamName) { gf+=gh; ga+=gay; if(gh>gay)wins++; else if(gh===gay)draws++; else losses++; }\n      else { gf+=gay; ga+=gh; if(gay>gh)wins++; else if(gh===gay)draws++; else losses++; }\n    }\n  }\n  return { played, wins, draws, losses, gf, ga, avgGF: played>0?(gf/played).toFixed(2):'0.00', avgGA: played>0?(ga/played).toFixed(2):'0.00' };\n}\n\nfunction getH2H(rounds, t1n, t2n) {\n  const res=[];\n  for (const round of (rounds||[])) {\n    for (const m of (round.matches||[])) {\n      if (!m.score?.ft) continue;\n      const a=m.team1?.name, b=m.team2?.name;\n      if ((a===t1n&&b===t2n)||(a===t2n&&b===t1n))\n        res.push({ date:m.date, round:round.name, home:a, away:b, score:m.score.ft });\n    }\n  }\n  return res;\n}\n\nfunction countBTTS(rounds, teamName) {\n  let btts=0, total=0;\n  for (const round of (rounds||[])) {\n    for (const m of (round.matches||[])) {\n      if (!m.score?.ft) continue;\n      const t1=m.team1?.name, t2=m.team2?.name;\n      if (t1!==teamName&&t2!==teamName) continue;\n      total++;\n      if (m.score.ft[0]>0&&m.score.ft[1]>0) btts++;\n    }\n  }\n  return { btts, total, pct: total>0?((btts/total)*100).toFixed(0)+'%':'N/A' };\n}\n\n// ===== PARTIDOS PROXIMOS =====\nconst today = new Date(); today.setHours(0,0,0,0);\nconst in7Days = new Date(today); in7Days.setDate(today.getDate()+7);\n\nlet upcoming = [];\nfor (const round of r2026) {\n  for (const m of (round.matches||[])) {\n    if (!m.date) continue;\n    const d = new Date(m.date);\n    if (d>=today && d<=in7Days && !m.score?.ft) upcoming.push({...m, roundName: round.name});\n  }\n}\nif (upcoming.length === 0) {\n  for (const round of r2026) {\n    for (const m of (round.matches||[])) {\n      const noScore = !m.score?.ft;\n      const hasTeams = m.team1?.name && !m.team1.name.match(/^[0-9WL]/);\n      if (noScore && hasTeams) upcoming.push({...m, roundName: round.name});\n    }\n  }\n  upcoming = upcoming.slice(0, 6);\n}\nif (upcoming.length === 0) {\n  return [{ json: { _debug:true, partido:'DIAGNOSTICO', r2026:r2026.length, r2022:r2022.length, r2018:r2018.length, fdMatches:(rawFDMatches.matches||[]).length, fdGroups:(rawFDStandings.standings||[]).length } }];\n}\n\nreturn upcoming.map(match => {\n  const t1 = match.team1?.name || 'TBD';\n  const t2 = match.team2?.name || 'TBD';\n\n  const stats1 = { wc2022: calcStats(r2022,t1), wc2018: calcStats(r2018,t1), btts: { wc2022: countBTTS(r2022,t1), wc2018: countBTTS(r2018,t1) } };\n  const stats2 = { wc2022: calcStats(r2022,t2), wc2018: calcStats(r2018,t2), btts: { wc2022: countBTTS(r2022,t2), wc2018: countBTTS(r2018,t2) } };\n  const forma1 = { ultimos5: getTeamForm(t1), standing: getTeamStanding(t1) };\n  const forma2 = { ultimos5: getTeamForm(t2), standing: getTeamStanding(t2) };\n\n  const elo1 = eloRatings[t1] || 1500;\n  const elo2 = eloRatings[t2] || 1500;\n  const eloDiff = elo1 - elo2;\n  const eloWin1 = +(1 / (1 + Math.pow(10, -eloDiff / 400)) * 100).toFixed(1);\n\n  const xg1 = estimateXG(forma1.ultimos5, stats1);\n  const xg2 = estimateXG(forma2.ultimos5, stats2);\n\n  const hf1 = getHomeFactor(t1);\n  const hf2 = getHomeFactor(t2);\n\n  const susp1 = getSuspensionRisk(t1);\n  const susp2 = getSuspensionRisk(t2);\n\n  return { json: {\n    partido: `${t1} vs ${t2}`, fecha: match.date||'TBD', hora: match.time||'TBD',\n    ronda: match.roundName||'TBD', grupo: match.group||'', estadio: match.ground||'',\n    equipo1: t1, equipo2: t2,\n    estadisticas: {\n      [t1]: stats1,\n      [t2]: stats2\n    },\n    h2h: { wc2022: getH2H(r2022,t1,t2), wc2018: getH2H(r2018,t1,t2), total: getH2H(r2022,t1,t2).length + getH2H(r2018,t1,t2).length },\n    jugadores: {\n      [t1]: { topScorers2026: getTopScorers(t1).filter(p=>p.years.includes(2026)), calidadEquipo: teamQualityScore(t1) },\n      [t2]: { topScorers2026: getTopScorers(t2).filter(p=>p.years.includes(2026)), calidadEquipo: teamQualityScore(t2) }\n    },\n    formaActual: { [t1]: forma1, [t2]: forma2 },\n    elo: {\n      [t1]: { rating: elo1, winProb: eloWin1 },\n      [t2]: { rating: elo2, winProb: +(100 - eloWin1).toFixed(1) },\n      diferencia: Math.abs(eloDiff),\n      favorito: eloDiff > 20 ? t1 : eloDiff < -20 ? t2 : 'Equilibrado'\n    },\n    xg: { [t1]: xg1, [t2]: xg2, total: +(xg1+xg2).toFixed(2) },\n    localVisitante: { [t1]: hf1, [t2]: hf2 },\n    bajas: {\n      [t1]: { suspendidos: susp1.suspendidos, enRiesgo: susp1.enRiesgo },\n      [t2]: { suspendidos: susp2.suspendidos, enRiesgo: susp2.enRiesgo }\n    }\n  }};\n});"
+      },
+      "id": "8b0068e8-5d57-4636-8c75-31000d5da19a",
+      "name": "Calcular Estadisticas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un analista experto de futbol del Mundial 2026. Analiza el siguiente partido y genera predicciones en ESPANOL.\n\nDATA DEL PARTIDO:\n{{ $json._resumen }}\n\nREGLAS DE FORMATO - MUY IMPORTANTE:\n- USA SOLO texto plano y emojis. CERO asteriscos, CERO guiones bajos, CERO tablas con | , CERO markdown.\n- Separa secciones con lineas de guiones: ─────────────────\n- Maximo 3800 caracteres\n\nESTRUCTURA OBLIGATORIA:\n\n⚽ [EQUIPO1] vs [EQUIPO2]\n📅 Fecha: [fecha] hora: [hora]\n🏟 Ronda: [ronda] | Grupo: [grupo]\n\n─────────────────\n📊 FORMA ACTUAL WC 2026\n[Posicion en grupo, puntos, V/E/D]\n[Ultimos partidos: RESULTADO Marcador vs Rival]\n\n─────────────────\n🎯 ELO Y PROBABILIDADES\n[ELO de cada equipo y probabilidad de victoria %]\n[Favorito segun ELO]\n[Mencionar si hay ventaja de sede (local/co-sede)]\n\n─────────────────\n⚡ xG Y EXPECTATIVA DE GOLES\n[xG estimado de cada equipo]\n[Total xG del partido vs linea Over 2.5]\n[Tendencia BTTS si es relevante]\n\n─────────────────\n🚨 BAJAS Y SUSPENSIONES\n[Jugadores suspendidos por acumulacion]\n[Jugadores en riesgo (1 amarilla)]\n[Impacto estimado en el partido]\n\n─────────────────\n📜 HISTORICO 2018 y 2022\n[EQUIPO1]: partidos jugados, victorias, goles\n[EQUIPO2]: partidos jugados, victorias, goles\n\n─────────────────\n⚔ H2H MUNDIALES\n[Resultados directos o indicar que no hay historial]\n\n─────────────────\n⭐ JUGADORES CLAVE 2026\n[Goleadores activos de cada equipo con numero de goles]\n\n─────────────────\n🎯 PREDICCIONES\n1X2: [nombre equipo o Empate] - Confianza [Alta/Media/Baja]\nOver 2.5: [Over/Under] - [razon breve]\nBTTS: [Si/No] - [razon breve]\n\n─────────────────\n💡 CONCLUSION\n[2-3 lineas explicando el pronostico integrando ELO + xG + forma + bajas + factor sede]",
+        "options": {
+          "systemMessage": "Eres un experto analista de futbol especializado en estadisticas de la Copa del Mundo. Utilizas ELO, xG estimado, factor local/visitante, bajas por suspension y datos historicos WC 2018/2022 para generar predicciones del Mundial 2026. Respondes SIEMPRE en espanol. Basas predicciones UNICAMENTE en datos estadisticos provistos. Nunca inventas datos. Cuando el ELO, xG y la forma apuntan en la misma direccion, aumentas la confianza del pronostico. Cuando son contradictorios, reduces la confianza e indicas incertidumbre.",
+          "maxIterations": 5
+        }
+      },
+      "id": "4865a48f-418b-45f2-b67c-b000c23379f1",
+      "name": "Analista de Futbol IA",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        896,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "-5560851672",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": ""
+        }
+      },
+      "id": "24c697f3-1c53-4dc4-ae21-8aee57773dbe",
+      "name": "Enviar Analisis a Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1408,
+        192
+      ],
+      "webhookId": "f7bff141-2198-46b6-9d6c-d04e4cc2846e",
+      "credentials": {
+        "telegramApi": {
+          "id": "Z7e7aa2o6MROM6OA",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first()?.json || {};\nlet data = raw.data ?? raw;\nif (typeof data === 'string') { try { data = JSON.parse(data); } catch(e) { data = {}; } }\nif (typeof data !== 'object' || data === null || Array.isArray(data)) { data = {}; }\nreturn [{ json: data }];"
+      },
+      "id": "3d3e1759-c789-4c97-ab10-c484ebf132e6",
+      "name": "Resolver Archivo 2026",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first()?.json || {};\nlet data = raw.data ?? raw;\nif (typeof data === 'string') { try { data = JSON.parse(data); } catch(e) { data = {}; } }\nif (typeof data !== 'object' || data === null || Array.isArray(data)) { data = {}; }\nreturn [{ json: data }];"
+      },
+      "id": "2694a8e0-51cc-4de5-9a84-8bb3d29e34bd",
+      "name": "Resolver Archivo 2022",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first()?.json || {};\nlet data = raw.data ?? raw;\nif (typeof data === 'string') { try { data = JSON.parse(data); } catch(e) { data = {}; } }\nif (typeof data !== 'object' || data === null || Array.isArray(data)) { data = {}; }\nreturn [{ json: data }];"
+      },
+      "id": "b30d04c7-8cce-4367-96b8-5b933b5584b2",
+      "name": "Resolver Archivo 2018",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.1-8b-instant",
+        "options": {
+          "maxTokensToSample": 1000,
+          "temperature": 0.4
+        }
+      },
+      "id": "5a2a66e8-67f4-4bd4-94fc-94dbb4d10684",
+      "name": "Groq Llama 3.3",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        512
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "credentials": {
+        "groqApi": {
+          "id": "S5bLYwLT8xGVpgSU",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first()?.json || {};\nif (item._debug) return [{ json: item }];\n\nconst t1 = item.equipo1;\nconst t2 = item.equipo2;\nconst e1 = item.estadisticas?.[t1] || {};\nconst e2 = item.estadisticas?.[t2] || {};\nconst h2h = item.h2h || {};\nconst jug = item.jugadores || {};\nconst forma = item.formaActual || {};\nconst elo = item.elo || {};\nconst xg = item.xg || {};\nconst lv = item.localVisitante || {};\nconst bajas = item.bajas || {};\n\nfunction fmtStats(label, s22, s18) {\n  let lines = `[${label}]\\n`;\n  lines += s22?.played > 0 ? `WC2022: ${s22.played}J ${s22.wins}V${s22.draws}E${s22.losses}D GF:${s22.gf} GC:${s22.ga} avg:${s22.avgGF}\\n` : `WC2022: sin datos\\n`;\n  lines += s18?.played > 0 ? `WC2018: ${s18.played}J ${s18.wins}V${s18.draws}E${s18.losses}D GF:${s18.gf} GC:${s18.ga} avg:${s18.avgGF}\\n` : `WC2018: sin datos\\n`;\n  return lines;\n}\n\nfunction fmtH2H(list, year) {\n  return list?.length ? list.map(m => `  ${year} ${m.date}: ${m.home} ${m.score[0]}-${m.score[1]} ${m.away}`).join('\\n') : '';\n}\n\nfunction fmtJugadores(jugData) {\n  if (!jugData) return '';\n  let lines = '';\n  const sc26 = jugData.topScorers2026 || [];\n  if (sc26.length) lines += `  Goleadores 2026: ${sc26.map(p => `${p.nombre}(${p.goles}G${p.hatTricks>0?' '+p.hatTricks+'HT':''}${p.penaltis>0?' '+p.penaltis+'PEN':''})`).join(', ')}\\n`;\n  const q = jugData.calidadEquipo;\n  if (q?.score > 0) lines += `  Indice calidad: ${q.score}pts → ${(q.topScorers||[]).map(p=>`${p.nombre}:${p.score}`).join(', ')}\\n`;\n  return lines;\n}\n\nfunction fmtForma(teamName, fd) {\n  if (!fd) return `  Sin datos\\n`;\n  let lines = '';\n  const st = fd.standing;\n  if (st) lines += `  ${st.grupo} pos.${st.posicion}: ${st.puntos}pts (${st.victorias}V${st.empates}E${st.derrotas}D | GF:${st.gf} GC:${st.gc})\\n`;\n  const ult = fd.ultimos5 || [];\n  if (ult.length) {\n    lines += `  Ultimos ${ult.length} WC2026: ${ult.map(m=>`${m.resultado}(${m.marcador} vs ${m.rival})`).join(' | ')}\\n`;\n    const wins = ult.filter(m=>m.resultado==='V').length;\n    const bttsCnt = ult.filter(m=>{ const [a,b]=m.marcador.split('-').map(Number); return a>0&&b>0; }).length;\n    lines += `  Racha: ${wins}V ${ult.filter(m=>m.resultado==='E').length}E ${ult.length-wins-ult.filter(m=>m.resultado==='E').length}D | BTTS: ${bttsCnt}/${ult.length}\\n`;\n  } else {\n    lines += `  Sin partidos completados en WC2026 aun\\n`;\n  }\n  return lines;\n}\n\nconst h2hTexto = [fmtH2H(h2h.wc2022,'WC2022'), fmtH2H(h2h.wc2018,'WC2018')].filter(Boolean).join('\\n');\n\nconst eloT1 = elo[t1] || {};\nconst eloT2 = elo[t2] || {};\nconst lvT1 = lv[t1] || { label: 'Visitante', boost: 0 };\nconst lvT2 = lv[t2] || { label: 'Visitante', boost: 0 };\nconst bajasT1 = bajas[t1] || { suspendidos: [], enRiesgo: [] };\nconst bajasT2 = bajas[t2] || { suspendidos: [], enRiesgo: [] };\n\nconst resumen = [\n  '=== ANALISIS PARTIDO MUNDIAL 2026 (MODELO 24H) ===',\n  `Partido: ${item.partido}`,\n  `Fecha: ${item.fecha} ${item.hora||''}`,\n  `Ronda: ${item.ronda} ${item.grupo?'| Grupo: '+item.grupo:''}`,\n  `Estadio: ${item.estadio||'Por definir'}`,\n  '',\n  '--- ELO Y PROBABILIDADES ---',\n  `${t1}: ELO ${eloT1.rating||1500} | Prob. victoria: ${eloT1.winProb||'?'}%`,\n  `${t2}: ELO ${eloT2.rating||1500} | Prob. victoria: ${eloT2.winProb||'?'}%`,\n  `Diferencia ELO: ${elo.diferencia||0} pts | Favorito por ELO: ${elo.favorito||'Equilibrado'}`,\n  '',\n  '--- xG ESTIMADO ---',\n  `${t1}: xG ${xg[t1]||'?'} goles/partido`,\n  `${t2}: xG ${xg[t2]||'?'} goles/partido`,\n  `Total xG: ${xg.total||'?'} (referencia Over/Under 2.5)`,\n  '',\n  '--- LOCAL/VISITANTE ---',\n  `${t1}: ${lvT1.label}${lvT1.boost > 0 ? ` (+${Math.round(lvT1.boost*100)}% ventaja estimada)` : ''}`,\n  `${t2}: ${lvT2.label}${lvT2.boost > 0 ? ` (+${Math.round(lvT2.boost*100)}% ventaja estimada)` : ''}`,\n  '',\n  '--- BAJAS Y SUSPENSIONES (tarjetas WC2026) ---',\n  `${t1}: Suspendidos: ${bajasT1.suspendidos.length ? bajasT1.suspendidos.join(', ') : 'Ninguno'} | En riesgo (1 amarilla): ${bajasT1.enRiesgo.length ? bajasT1.enRiesgo.join(', ') : 'Ninguno'}`,\n  `${t2}: Suspendidos: ${bajasT2.suspendidos.length ? bajasT2.suspendidos.join(', ') : 'Ninguno'} | En riesgo (1 amarilla): ${bajasT2.enRiesgo.length ? bajasT2.enRiesgo.join(', ') : 'Ninguno'}`,\n  `NOTA: Lesiones y once titular se analizan en el Modelo de Ajuste (30-60 min antes).`,\n  '',\n  '--- FORMA ACTUAL WC 2026 ---',\n  `${t1}:`,\n  fmtForma(t1, forma[t1]),\n  `${t2}:`,\n  fmtForma(t2, forma[t2]),\n  '--- ESTADISTICAS HISTORICAS (WC 2018 + 2022) ---',\n  fmtStats(t1, e1.wc2022, e1.wc2018),\n  fmtStats(t2, e2.wc2022, e2.wc2018),\n  `BTTS historico:`,\n  `  ${t1}: WC2022 ${e1.btts?.wc2022?.pct||'N/A'} (${e1.btts?.wc2022?.btts||0}/${e1.btts?.wc2022?.total||0}), WC2018 ${e1.btts?.wc2018?.pct||'N/A'} (${e1.btts?.wc2018?.btts||0}/${e1.btts?.wc2018?.total||0})`,\n  `  ${t2}: WC2022 ${e2.btts?.wc2022?.pct||'N/A'} (${e2.btts?.wc2022?.btts||0}/${e2.btts?.wc2022?.total||0}), WC2018 ${e2.btts?.wc2018?.pct||'N/A'} (${e2.btts?.wc2018?.btts||0}/${e2.btts?.wc2018?.total||0})`,\n  '',\n  '--- H2H MUNDIALES ---',\n  h2h.total > 0 ? h2hTexto : 'Sin H2H en WC 2018/2022',\n  '',\n  '--- CALIDAD DE JUGADORES ---',\n  `${t1}:`,\n  fmtJugadores(jug[t1]),\n  `${t2}:`,\n  fmtJugadores(jug[t2])\n].join('\\n').trim();\n\nreturn [{ json: { ...item, _resumen: resumen } }];"
+      },
+      "id": "3c4bbbf3-dae9-4250-a357-a3ee3baddcdd",
+      "name": "Preparar Resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.football-data.org/v4/competitions/WC/matches?status=FINISHED",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "f61831e7629843429d9cc03aa3b4d7af"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fd-partidos-node",
+      "name": "FD Partidos WC2026",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        80,
+        736
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.football-data.org/v4/competitions/WC/standings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "f61831e7629843429d9cc03aa3b4d7af"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fd-standings-node",
+      "name": "FD Standings WC2026",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        80,
+        928
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Diario 8:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Partidos Mundial 2026",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Historico 2022",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Historico 2018",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FD Partidos WC2026",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FD Standings WC2026",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combinar Fuentes de Datos": {
+      "main": [
+        [
+          {
+            "node": "Calcular Estadisticas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analista de Futbol IA": {
+      "main": [
+        [
+          {
+            "node": "Enviar Analisis a Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Partidos Mundial 2026": {
+      "main": [
+        [
+          {
+            "node": "Resolver Archivo 2026",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver Archivo 2026": {
+      "main": [
+        [
+          {
+            "node": "Combinar Fuentes de Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Historico 2022": {
+      "main": [
+        [
+          {
+            "node": "Resolver Archivo 2022",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver Archivo 2022": {
+      "main": [
+        [
+          {
+            "node": "Combinar Fuentes de Datos",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Historico 2018": {
+      "main": [
+        [
+          {
+            "node": "Resolver Archivo 2018",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver Archivo 2018": {
+      "main": [
+        [
+          {
+            "node": "Combinar Fuentes de Datos",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Groq Llama 3.3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analista de Futbol IA",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Estadisticas": {
+      "main": [
+        [
+          {
+            "node": "Preparar Resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Resumen": {
+      "main": [
+        [
+          {
+            "node": "Analista de Futbol IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FD Partidos WC2026": {
+      "main": [
+        [
+          {
+            "node": "Combinar Fuentes de Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FD Standings WC2026": {
+      "main": [
+        [
+          {
+            "node": "Combinar Fuentes de Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "eeb202f6-6386-4553-ab0c-eeed7cc7122f",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6fe05ae8e6a660f765f63602112dfbdcac6d0cd96639858654f971aec78498ea"
+  },
+  "nodeGroups": [],
+  "id": "eW96CRfH32n9OBxF",
+  "tags": []
+}

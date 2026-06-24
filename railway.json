@@ -1,0 +1,19 @@
+# Railway deployment guide
+#
+# Create a Railway project with 3 services:
+#
+# 1. API
+#    - Root: /
+#    - Start: uvicorn apps.api.main:app --host 0.0.0.0 --port $PORT
+#    - Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, REDIS_URL, OLLAMA_BASE_URL, WHATSAPP_*
+#
+# 2. Worker
+#    - Root: /
+#    - Start: arq apps.worker.main.WorkerSettings
+#    - Env: same as API + API_FOOTBALL_KEY
+#
+# 3. Redis
+#    - Add Redis plugin from Railway marketplace
+#    - Copy REDIS_URL to API and Worker services
+#
+# Public URL of API service is used by n8n webhooks.

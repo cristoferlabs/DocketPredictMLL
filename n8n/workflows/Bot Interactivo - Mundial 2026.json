@@ -1,0 +1,1794 @@
+{
+  "name": "Bot Interactivo - Mundial 2026",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "86c14609-3ee9-49f1-853d-b1f6c21c0af1",
+      "name": "Telegram Bot",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -384,
+        384
+      ],
+      "webhookId": "9cfa01e5-4127-4475-854e-bfb956a8b817",
+      "credentials": {
+        "telegramApi": {
+          "id": "Z7e7aa2o6MROM6OA",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const u=$input.first().json;\nlet chatId,type,text,callbackData,callbackQueryId;\nif(u.callback_query){\n  type='callback';\n  chatId=u.callback_query.message?.chat?.id;\n  callbackQueryId=u.callback_query.id;\n  callbackData=u.callback_query.data;\n  // Boton 'Alta Probabilidad' del menu => menu de ligas\n  if(callbackData==='__alta__'){\n    type='command';\n    text='/alta';\n    callbackData='';\n  }\n  // Seleccion de liga especifica => escanear esa liga\n  if(callbackData&&callbackData.startsWith('alta:')){\n    type='command';\n    text='/alta '+callbackData.substring(5); // '/alta soccer_fifa_world_cup'\n    callbackData='';\n  }\n}else{\n  type='command';\n  chatId=u.message?.chat?.id;\n  text=u.message?.text||'';\n}\nreturn[{json:{type,chatId:String(chatId||''),text:text||'',callbackData:callbackData||'',callbackQueryId:callbackQueryId||''}}];"
+      },
+      "id": "c70fd92b-dfdd-4fe6-b532-ef4382cb75d8",
+      "name": "Extraer Contexto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "command"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "callback"
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "eaa49d50-8fac-46ef-a715-611b208aac27",
+      "name": "Comando o Seleccion",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://jwpdukjouvaygefeanfs.supabase.co/rest/v1/predicciones?fecha=gte.' + $now.toFormat('yyyy-MM-dd') + '&fecha=lte.' + $now.plus({days:1}).toFormat('yyyy-MM-dd') + '&prob_local=not.is.null&select=*&order=hora.asc' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3cGR1a2pvdXZheWdlZmVhbmZzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTgxMTg3OSwiZXhwIjoyMDk3Mzg3ODc5fQ.sffxJ-xuauInhIQaNje8WSd5ToIoRrm7vo7wJiRp-Ik"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3cGR1a2pvdXZheWdlZmVhbmZzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTgxMTg3OSwiZXhwIjoyMDk3Mzg3ODc5fQ.sffxJ-xuauInhIQaNje8WSd5ToIoRrm7vo7wJiRp-Ik"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "c66c6531-10b0-433a-8da0-899d2bd8b3aa",
+      "name": "Fetch Partidos Hoy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        0
+      ],
+      "executeOnce": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx=$('Extraer Contexto').first().json;\nconst chatId=ctx.chatId;\nconst cmdText=(ctx.text||'').trim().toLowerCase();\n\n// ============================================================\n// SECCION: ALTA PROBABILIDAD  \n// Filosofia: el modelo manda, el mercado da el precio.\n// Solo apostamos cuando nuestro modelo ve MAS prob que el mercado.\n// EV = prob_modelo * mejor_cuota - 1  → positivo = tenemos ventaja\n// FASE 1: Bloqueo de correlación intra-partido implementado\n// ============================================================\nif(cmdText==='/alta'||cmdText.startsWith('/alta ')){\n  const ODDS_KEY='66ce87d7f976181db2383c4b59716840';\n\n  const TODAS_LIGAS=[\n    {id:'soccer_fifa_world_cup',        label:'🌐 Copa 2026 (WC)',    flag:'🌐'},\n    {id:'soccer_argentina_primera_division', label:'🇦🇷 Argentina 1ra', flag:'🇦🇷'},\n    {id:'soccer_brazil_campeonato',     label:'🇧🇷 Brasileirao A',  flag:'🇧🇷'},\n    {id:'soccer_brazil_serie_b',        label:'🇧🇷 Brasil Serie B',  flag:'🇧🇷'},\n    {id:'soccer_peru_primera_division', label:'🇵🇪 Peru Liga 1',    flag:'🇵🇪'},\n    {id:'soccer_usa_usl_championship',  label:'🇺🇸 USL Championship',flag:'🇺🇸'},\n    {id:'soccer_mexico_ligamx',         label:'🇲🇽 Liga MX',          flag:'🇲🇽'},\n    {id:'soccer_iceland_premier',       label:'🇮🇸 Islandia',         flag:'🇮🇸'},\n    {id:'soccer_ireland_premier_division',label:'🇮🇪 Irlanda',        flag:'🇮🇪'},\n  ];\n\n  if(cmdText==='/alta'){\n    const rows=[];\n    for(let i=0;i<TODAS_LIGAS.length;i+=2){\n      const row=[{text:TODAS_LIGAS[i].label, callback_data:'alta:'+TODAS_LIGAS[i].id}];\n      if(TODAS_LIGAS[i+1])row.push({text:TODAS_LIGAS[i+1].label, callback_data:'alta:'+TODAS_LIGAS[i+1].id});\n      rows.push(row);\n    }\n    rows.push([{text:'🌍 Todas las ligas', callback_data:'alta:ALL'}]);\n    return[{json:{chatId,\n      text:'🔥 ALTA PROBABILIDAD\\n━'.repeat(1)+'━'.repeat(19)+'\\nSelecciona la liga:',\n      reply_markup:{inline_keyboard:rows}\n    }}];\n  }\n\n  const ligaArg=cmdText.replace('/alta','').trim();\n  const ligasAEscanear=ligaArg==='all'||ligaArg===''?\n    TODAS_LIGAS:\n    TODAS_LIGAS.filter(l=>l.id===ligaArg);\n\n  if(!ligasAEscanear.length)return[{json:{chatId,text:'❌ Liga no reconocida. Usa /alta'}}];\n\n  const now=new Date();\n  const from=now.toISOString();\n  const to=new Date(now.getTime()+4*24*60*60*1000).toISOString();\n\n  const ELO={\n    'argentina':2095,'france':1960,'brazil':1900,'england':1830,'spain':1870,\n    'germany':1810,'netherlands':1780,'portugal':1790,'belgium':1700,'croatia':1690,\n    'uruguay':1700,'denmark':1670,'switzerland':1660,'mexico':1640,'usa':1620,\n    'senegal':1640,'morocco':1660,'japan':1630,'colombia':1620,'south korea':1600,\n    'norway':1650,'austria':1670,'poland':1610,'canada':1590,'australia':1570,\n    'turkey':1620,'ecuador':1580,'italy':1720,'sweden':1630,'ukraine':1600,\n    'river plate':1750,'boca juniors':1730,'racing club':1710,'independiente':1680,\n    'atletico mineiro':1700,'flamengo':1720,'palmeiras':1710,'fluminense':1680,\n    'botafogo':1660,'sao paulo':1650,'corinthians':1640,'santos':1620,\n    'alianza lima':1600,'universitario':1590,'sporting cristal':1580,\n    'guadalajara':1650,'club america':1660,'cruz azul':1640,'tigres':1630,\n    'monterrey':1620,'pachuca':1600\n  };\n  function getElo(name){\n    const k=(name||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z ]/g,'');\n    if(ELO[k])return ELO[k];\n    for(const[key,val]of Object.entries(ELO))\n      if(k.includes(key.substring(0,5))||key.includes(k.substring(0,5)))return val;\n    return 1550;\n  }\n  function poisson(lambda,k){\n    if(lambda<=0)return k===0?1:0;\n    let r=Math.exp(-lambda);\n    for(let i=1;i<=k;i++)r*=lambda/i;\n    return Math.max(0,r);\n  }\n  function modeloProbs(home,away,liga){\n    const e1=getElo(home),e2=getElo(away);\n    const diff=e1-e2;\n    const avg=liga.includes('world_cup')?1.22:liga.includes('argentina')||liga.includes('brazil')||liga.includes('peru')?1.30:1.25;\n    const homeAdv=liga.includes('world_cup')?0:0.10;\n    const xg1=Math.max(0.4,avg*(1+diff/500)+homeAdv);\n    const xg2=Math.max(0.4,avg*(1-diff/500));\n    let p1=0,pd=0,p2=0;\n    for(let h=0;h<=7;h++)for(let a=0;a<=7;a++){\n      const p=poisson(xg1,h)*poisson(xg2,a);\n      if(h>a)p1+=p;else if(h<a)p2+=p;else pd+=p;\n    }\n    return{p1,pd,p2,xg1,xg2};\n  }\n\n  function fairMarketProb(bks,home,away){\n    let s1=0,sD=0,s2=0,n=0;\n    for(const bk of bks.slice(0,12)){\n      const h=(bk.markets||[]).find(m=>m.key==='h2h');\n      if(!h)continue;\n      const o1=h.outcomes.find(o=>o.name===home)?.price;\n      const o2=h.outcomes.find(o=>o.name===away)?.price;\n      const oD=h.outcomes.find(o=>o.name==='Draw')?.price;\n      if(!o1||!o2)continue;\n      s1+=1/o1;s2+=1/o2;if(oD)sD+=1/oD;n++;\n    }\n    if(!n)return null;\n    const t=(s1+s2+sD)/n;\n    return{fp1:s1/n/t,fp2:s2/n/t,fpD:sD>0?sD/n/t:0};\n  }\n  function bestOdds(bks,market,name){\n    let best=1.0;\n    for(const bk of bks){\n      const mk=(bk.markets||[]).find(m=>m.key===market);\n      const o=mk?.outcomes?.find(o=>o.name===name)?.price;\n      if(o&&o>best)best=o;\n    }\n    return +best.toFixed(2);\n  }\n\n  let allMatches=[];\n  const ligas_error=[];\n  await Promise.all(ligasAEscanear.map(async lg=>{\n    try{\n      const r=await $helpers.httpRequest({\n        method:'GET',\n        url:`https://api.the-odds-api.com/v4/sports/${lg.id}/odds/?apiKey=${ODDS_KEY}&regions=eu,us,uk,au&markets=h2h,doubleChance&oddsFormat=decimal&commenceTimeFrom=${encodeURIComponent(from)}&commenceTimeTo=${encodeURIComponent(to)}`,\n      });\n      if(Array.isArray(r)&&r.length>0)\n        r.forEach(m=>allMatches.push({...m,lgLabel:lg.label,lgFlag:lg.flag,lgId:lg.id}));\n    }catch(e){ligas_error.push(lg.label);}\n  }));\n\n  const picks_value=[];\n  for(const m of allMatches){\n    if(!(m.bookmakers||[]).length)continue;\n    const fmp=fairMarketProb(m.bookmakers,m.home_team,m.away_team);\n    if(!fmp)continue;\n    const mod=modeloProbs(m.home_team,m.away_team,m.lgId||'');\n    const dt=new Date(m.commence_time);\n    const dtStr=dt.toLocaleDateString('es',{weekday:'short',month:'short',day:'numeric'})+' '+dt.toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});\n\n    const opciones=[\n      {tipo:'local', name:m.home_team, prob_modelo:mod.p1, prob_mercado:fmp.fp1},\n      {tipo:'empate', name:'Draw',      prob_modelo:mod.pd, prob_mercado:fmp.fpD},\n      {tipo:'visita', name:m.away_team, prob_modelo:mod.p2, prob_mercado:fmp.fp2}\n    ];\n\n    for(const op of opciones){\n      if(op.prob_modelo<0.45)continue;\n      if(op.prob_mercado<0.05)continue;\n      const mejorCuota=bestOdds(m.bookmakers,'h2h',op.name);\n      if(mejorCuota<=1.05)continue;\n      const ev=+(op.prob_modelo*mejorCuota-1).toFixed(4);\n      if(ev<=0)continue;\n      const edge=+(op.prob_modelo-op.prob_mercado).toFixed(4);\n      picks_value.push({\n        home:m.home_team,away:m.away_team,\n        lg:m.lgLabel,flag:m.lgFlag,\n        pick:op.tipo==='empate'?'Empate':(op.tipo==='local'?m.home_team:m.away_team),\n        prob_modelo:op.prob_modelo,\n        prob_mercado:op.prob_mercado,\n        cuota:mejorCuota,\n        ev,edge,\n        dt:dtStr\n      });\n      break;\n    }\n  }\n\n  const seenM=new Map();\n  for(const p of picks_value){\n    const k=p.home+'|'+p.away;\n    if(!seenM.has(k)||p.ev>seenM.get(k).ev)seenM.set(k,p);\n  }\n  const pool=[...seenM.values()].sort((a,b)=>b.ev-a.ev).slice(0,20);\n\n  const ligaTitulo=ligaArg==='all'?'Todas las ligas':ligasAEscanear[0]?.label;\n\n  if(!pool.length){\n    let msg=`🔍 Sin VALUE en ${ligaTitulo} (prox 4 dias).\\n`;\n    msg+=`Analice ${allMatches.length} partidos.\\n`;\n    msg+='El mercado tiene ventaja en todos los partidos disponibles ahora.\\n';\n    if(ligas_error.length)msg+='\\n⚠️ Sin respuesta: '+ligas_error.join(', ');\n    msg+='\\n🔄 /alta para otra liga';\n    return[{json:{chatId,text:msg}}];\n  }\n\n  // ── FASE 1: Combos con bloqueo de correlación intra-partido ──────────────\n  // REGLA CLAVE: nunca combinar picks de equipos que se enfrentan entre sí.\n  // Si dos picks comparten algún equipo (home o away), son del MISMO partido\n  // y tienen correlación alta (φ>0.30) → multiplicar sus prob es doble conteo.\n  // Entre partidos DISTINTOS: φ≈0 → independencia válida → se puede multiplicar.\n  function mismoPartido(a, b) {\n    return a.home===b.home || a.away===b.away ||\n           a.home===b.away || a.away===b.home;\n  }\n\n  const combis=[];\n  let bloqueados=0;\n\n  // DOBLES\n  for(let i=0;i<pool.length;i++){\n    for(let j=i+1;j<pool.length;j++){\n      // Bloqueo correlación intra-partido (Fase 1)\n      if(mismoPartido(pool[i],pool[j])){ bloqueados++; continue; }\n      const cuotaT=+(pool[i].cuota*pool[j].cuota).toFixed(2);\n      const probT=+(pool[i].prob_modelo*pool[j].prob_modelo);\n      const evT=+(probT*cuotaT-1).toFixed(4);\n      if(evT<=0||cuotaT<1.35||cuotaT>10)continue;\n      combis.push({tipo:'DOBLE',picks:[pool[i],pool[j]],cuota:cuotaT,prob:+(probT*100).toFixed(1),ev:evT});\n    }\n  }\n  // TRIPLES\n  for(let i=0;i<pool.length;i++){\n    for(let j=i+1;j<pool.length;j++){\n      for(let k=j+1;k<pool.length;k++){\n        // Verificar que ningún par comparte partido\n        if(mismoPartido(pool[i],pool[j])||mismoPartido(pool[i],pool[k])||mismoPartido(pool[j],pool[k])){\n          bloqueados++; continue;\n        }\n        const cuotaT=+(pool[i].cuota*pool[j].cuota*pool[k].cuota).toFixed(2);\n        const probT=+(pool[i].prob_modelo*pool[j].prob_modelo*pool[k].prob_modelo);\n        const evT=+(probT*cuotaT-1).toFixed(4);\n        if(evT<=0||cuotaT<1.45||cuotaT>20)continue;\n        combis.push({tipo:'TRIPLE',picks:[pool[i],pool[j],pool[k]],cuota:cuotaT,prob:+(probT*100).toFixed(1),ev:evT});\n      }\n    }\n  }\n  combis.sort((a,b)=>b.ev-a.ev);\n\n  let msg=`🔥 ALTA PROBABILIDAD\\n${ligaTitulo}\\n`+'━'.repeat(20)+'\\n';\n  msg+=`🔍 Analicé ${allMatches.length} partidos → ${pool.length} con value\\n`;\n  if(bloqueados>0) msg+=`🛡️ ${bloqueados} combos bloqueados por correlación intra-partido\\n`;\n  msg+=`📊 Cuotas del mercado como precio, el modelo como decisión.\\n`;\n\n  if(combis.length){\n    msg+=`\\n🔵 COMBINACIONES CON VENTAJA (EV+):\\n`;\n    combis.slice(0,5).forEach((c,i)=>{\n      msg+=`\\n${i+1}. ${c.tipo} | ${c.cuota}x | ${c.prob}% prob | EV+${(c.ev*100).toFixed(1)}%\\n`;\n      c.picks.forEach(p=>{\n        const edgePct=+(p.edge*100).toFixed(1);\n        msg+=`   ${p.flag} ${p.pick} (${p.cuota}x)\\n`;\n        msg+=`   └ Modelo: ${(p.prob_modelo*100).toFixed(0)}% | Mercado: ${(p.prob_mercado*100).toFixed(0)}% | Edge: +${edgePct}%\\n`;\n        msg+=`   └ ${p.home} vs ${p.away} | ${p.dt}\\n`;\n      });\n    });\n    msg+='\\n━'.repeat(20);\n    msg+='\\n💡 EV+ = modelo ve más valor que el mercado\\n';\n    msg+='Busca la mejor cuota disponible en tu app.';\n  } else {\n    msg+='\\n⚠️ Picks con value pero sin combis rentables hoy.\\n';\n    msg+='Picks individuales con edge:\\n\\n';\n    pool.slice(0,6).forEach((p,i)=>{\n      msg+=`${i+1}. ${p.flag} ${p.pick} | ${p.cuota}x | Modelo ${(p.prob_modelo*100).toFixed(0)}% vs Mercado ${(p.prob_mercado*100).toFixed(0)}%\\n`;\n      msg+=`   ${p.home} vs ${p.away} | ${p.dt}\\n`;\n    });\n    msg+='\\nEspera más partidos o prueba otra liga.';\n  }\n\n  if(ligas_error.length)msg+='\\n\\n⚠️ Sin respuesta de: '+ligas_error.join(', ');\n  msg+='\\n🔄 /alta para cambiar liga';\n  return[{json:{chatId,text:msg.substring(0,4000)}}];\n}\n\n// ============================================================\n// SECCION: MENU PRINCIPAL - partidos desde Supabase predicciones\n// ============================================================\n// Supabase predicciones — array plano directo\nconst raw = $input.all().map(i => i.json);\nconst matches = Array.isArray(raw) ? raw : [];\nif(matches.length===0) return[{json:{chatId,text:'⚽ No hay partidos disponibles hoy.\\n🔥 /alta para picks en otras ligas | 🔴 /vivo en vivo'}}];\nconst buttons = matches.map(m => {\n  const t1 = m.equipo1 || '';\n  const t2 = m.equipo2 || '';\n  const hora = m.hora ? ' (' + String(m.hora).substring(0,5) + ')' : '';\n  return[{text: t1 + ' vs ' + t2 + hora, callback_data: t1 + '|' + t2 + '|' + (m.fecha || '')}];\n});\nbuttons.push([{text:'🔥 Alta Probabilidad otras ligas',callback_data:'__alta__'}]);\nreturn[{json:{chatId,text:'⚽ Selecciona partido:',reply_markup:{inline_keyboard:buttons}}}];"
+      },
+      "id": "4ee274cc-e207-42b4-83fd-91670b111ce4",
+      "name": "Construir Menu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx=$input.first().json;const parts=(ctx.callbackData||'').split('|');return[{json:{team1:parts[0]||'',team2:parts[1]||'',fecha:parts[2]||'',chatId:ctx.chatId,callbackQueryId:ctx.callbackQueryId}}];"
+      },
+      "id": "54435b4b-d08f-485e-9fc4-c0194207e914",
+      "name": "Parse Callback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $json.callbackQueryId }}",
+        "additionalFields": {
+          "text": "⏳ Analizando partido..."
+        }
+      },
+      "id": "1f317f9d-5de4-4550-b036-270736834a7c",
+      "name": "Confirmar Seleccion",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        192
+      ],
+      "webhookId": "3bb3f26d-ac5d-43a1-94bd-32003c324aea",
+      "credentials": {
+        "telegramApi": {
+          "id": "Z7e7aa2o6MROM6OA",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "b95d8092-c689-4c98-b834-926b050efb1b",
+      "name": "HTTP 2026",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        384
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "numberInputs": 9
+      },
+      "id": "00d490e1-e852-4438-a122-08b23c9031b4",
+      "name": "Combinar Datos",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "5dd816b8-61e4-408c-bc5c-a68658460ab9",
+      "name": "HTTP 2022",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        576
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "08e7a0c5-8fc4-4909-b002-0035b42ce86a",
+      "name": "HTTP 2018",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        768
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.football-data.org/v4/competitions/WC/matches?status=FINISHED",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "f61831e7629843429d9cc03aa3b4d7af"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "d00ad983-3d06-4a8c-8e34-29a961af3870",
+      "name": "FD Matches",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        960
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.football-data.org/v4/competitions/WC/standings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Auth-Token",
+              "value": "f61831e7629843429d9cc03aa3b4d7af"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "ba7940eb-96bf-45d9-8821-b10c24b0dffb",
+      "name": "FD Standings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        1152
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx=$('Parse Callback').first().json;const t1=ctx.team1,t2=ctx.team2;const items=$input.all();const raw2026=items[0]?.json||{},raw2022=items[1]?.json||{},raw2018=items[2]?.json||{},rawFDM=items[3]?.json||{},rawFDS=items[4]?.json||{},rawOdds=items[5]?.json||{},rawAF=items[6]?.json||{},rawGNews=items[7]?.json||{},rawNewsAPI=items[8]?.json||{};function nm(a,b){if(!a||!b)return false;const n=s=>s.toLowerCase().replace(/[^a-z]/g,'');return n(a)===n(b)||n(a).includes(n(b))||n(b).includes(n(a));}function getForm(tn,lim=5){return(rawFDM.matches||[]).filter(m=>nm(m.homeTeam?.name,tn)||nm(m.homeTeam?.shortName,tn)||nm(m.awayTeam?.name,tn)||nm(m.awayTeam?.shortName,tn)).filter(m=>m.score?.fullTime?.home!=null).sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate)).slice(0,lim).map(m=>{const ih=nm(m.homeTeam?.name,tn)||nm(m.homeTeam?.shortName,tn);const s=m.score.fullTime;const tf=ih?s.home:s.away,og=ih?s.away:s.home;const opp=ih?(m.awayTeam?.shortName||m.awayTeam?.name):(m.homeTeam?.shortName||m.homeTeam?.name);return{fecha:m.utcDate?.split('T')[0],rival:opp,resultado:tf>og?'V':tf===og?'E':'D',marcador:tf+'-'+og};});}function getStanding(tn){for(const g of(rawFDS.standings||[])){for(const r of(g.table||[])){if(nm(r.team?.name,tn)||nm(r.team?.shortName,tn)){return{grupo:(g.group||'').replace('GROUP_','Grupo ')||g.stage,posicion:r.position,puntos:r.points,jugados:r.playedGames,victorias:r.won,empates:r.draw,derrotas:r.lost,gf:r.goalsFor,gc:r.goalsAgainst};}}}return null;}function norm(data){let d=data.data??data;if(typeof d==='string'){try{d=JSON.parse(d);}catch(e){d={};}}if(d.rounds&&d.rounds.length>0)return d;if(!d.matches)return{rounds:[]};const rm={};for(const m of d.matches){const rn=m.round||'Unknown';if(!rm[rn])rm[rn]={name:rn,matches:[]};rm[rn].matches.push({...m,team1:typeof m.team1==='string'?{name:m.team1}:(m.team1||{}),team2:typeof m.team2==='string'?{name:m.team2}:(m.team2||{})});}return{rounds:Object.values(rm)};}const r26=(norm(raw2026)).rounds||[],r22=(norm(raw2022)).rounds||[],r18=(norm(raw2018)).rounds||[];function extP(data,year){const players={};let d=data.data??data;if(typeof d==='string'){try{d=JSON.parse(d);}catch(e){d={};}}for(const m of(d.matches||[])){if(!m.score?.ft)continue;const mt1=typeof m.team1==='string'?m.team1:m.team1?.name;const mt2=typeof m.team2==='string'?m.team2:m.team2?.name;const proc=(goals,team)=>{const mc={};for(const g of(goals||[])){if(g.owngoal)continue;const n=g.name;if(!players[n])players[n]={team,goals:0,penalties:0,hatTricks:0,years:[]};players[n].goals++;players[n].team=team;if(g.penalty)players[n].penalties++;if(!players[n].years.includes(year))players[n].years.push(year);mc[n]=(mc[n]||0)+1;}for(const[n,cnt]of Object.entries(mc)){if(players[n]&&cnt>=3)players[n].hatTricks++;}};proc(m.goals1,mt1);proc(m.goals2,mt2);}return players;}function mergeP(...sources){const merged={};for(const[year,src]of sources){const w=year===2026?3:year===2022?2:1;for(const[name,s]of Object.entries(src)){if(!merged[name])merged[name]={team:s.team,goals:0,penalties:0,hatTricks:0,score:0,years:[]};merged[name].goals+=s.goals;merged[name].penalties+=s.penalties;merged[name].hatTricks+=s.hatTricks;merged[name].score+=(s.goals*w)+(s.hatTricks*5*w)+(s.penalties*0.5*w);if(!merged[name].years.includes(year))merged[name].years.push(year);}}return merged;}const allP=mergeP([2026,extP(raw2026,2026)],[2022,extP(raw2022,2022)],[2018,extP(raw2018,2018)]);function getTop(team,topN=5){return Object.entries(allP).filter(([_,s])=>s.team===team).sort((a,b)=>b[1].score-a[1].score).slice(0,topN).map(([name,s])=>({nombre:name,goles:s.goals,penaltis:s.penalties,hatTricks:s.hatTricks,score:+s.score.toFixed(1),years:s.years}));}function teamQ(team){const sc=getTop(team,3);return{score:+sc.reduce((a,p)=>a+p.score,0).toFixed(1),topScorers:sc};}function cStats(rounds,tn){let played=0,wins=0,draws=0,losses=0,gf=0,ga=0;for(const round of(rounds||[])){for(const m of(round.matches||[])){if(!m.score?.ft)continue;const mt1=m.team1?.name,mt2=m.team2?.name;if(mt1!==tn&&mt2!==tn)continue;played++;const[gh,gay]=m.score.ft;if(mt1===tn){gf+=gh;ga+=gay;if(gh>gay)wins++;else if(gh===gay)draws++;else losses++;}else{gf+=gay;ga+=gh;if(gay>gh)wins++;else if(gh===gay)draws++;else losses++;}}}return{played,wins,draws,losses,gf,ga,avgGF:played>0?(gf/played).toFixed(2):'0.00',avgGA:played>0?(ga/played).toFixed(2):'0.00'};}function getH2H(rounds,t1n,t2n){const res=[];for(const round of(rounds||[])){for(const m of(round.matches||[])){if(!m.score?.ft)continue;const a=m.team1?.name,b=m.team2?.name;if((a===t1n&&b===t2n)||(a===t2n&&b===t1n))res.push({date:m.date,home:a,away:b,score:m.score.ft});}}return res;}function cBTTS(rounds,tn){let btts=0,total=0;for(const round of(rounds||[])){for(const m of(round.matches||[])){if(!m.score?.ft)continue;const mt1=m.team1?.name,mt2=m.team2?.name;if(mt1!==tn&&mt2!==tn)continue;total++;if(m.score.ft[0]>0&&m.score.ft[1]>0)btts++;}}return{btts,total,pct:total>0?((btts/total)*100).toFixed(0)+'%':'N/A'};}let matchDate=ctx.fecha||'TBD',matchTime='',matchRound='',matchStadium='',matchGroup='';const raw26d=raw2026.data??raw2026;const raw26matches=typeof raw26d==='string'?[]:raw26d.matches||[];for(const m of raw26matches){const mt1=typeof m.team1==='string'?m.team1:m.team1?.name;const mt2=typeof m.team2==='string'?m.team2:m.team2?.name;if(mt1===t1&&mt2===t2){matchDate=m.date||matchDate;matchTime=m.time||'';matchRound=m.round||'';matchStadium=m.ground||'';matchGroup=m.group||'';break;}}function procOdds(od,ta,tb){const evts=Array.isArray(od)?od:(Array.isArray(od?.data)?od.data:[]);const ev=evts.find(e=>(nm(e.home_team,ta)&&nm(e.away_team,tb))||(nm(e.home_team,tb)&&nm(e.away_team,ta)));if(!ev)return null;const hh={h:[],d:[],a:[]},t25={ov:[],un:[]};for(const bm of(ev.bookmakers||[])){for(const mk of(bm.markets||[])){if(mk.key==='h2h'){for(const o of(mk.outcomes||[])){if(o.name===ev.home_team)hh.h.push(o.price);else if(o.name==='Draw')hh.d.push(o.price);else hh.a.push(o.price);}}if(mk.key==='totals'){for(const o of(mk.outcomes||[])){if(Math.abs((o.point||2.5)-2.5)<0.1){if(o.name==='Over')t25.ov.push(o.price);else t25.un.push(o.price);}}}}}const avg=a=>a.length?+(a.reduce((s,v)=>s+v,0)/a.length).toFixed(2):null;const imp=x=>x?+(1/x*100).toFixed(1):null;const oH=avg(hh.h),oD=avg(hh.d),oA=avg(hh.a),oOv=avg(t25.ov),oUn=avg(t25.un);const it1h=nm(ev.home_team,ta);return{ok:true,ht:ev.home_team,at:ev.away_team,o1:it1h?oH:oA,oD,o2:it1h?oA:oH,p1:imp(it1h?oH:oA),pD:imp(oD),p2:imp(it1h?oA:oH),oOv,oUn,pOv:imp(oOv),pUn:imp(oUn),bks:ev.bookmakers?.length||0};}function procAF(af,ta,tb){const resp=Array.isArray(af.response)?af.response:[];if(!resp.length)return null;const sorted=[...resp].sort((a,b)=>new Date(b.fixture?.date)-new Date(a.fixture?.date));function gfx(tn,lim=5){return sorted.filter(f=>(nm(f.teams?.home?.name,tn)||nm(f.teams?.away?.name,tn))&&f.fixture?.status?.short==='FT').slice(0,lim).map(f=>{const ih=nm(f.teams?.home?.name,tn);const gfa=ih?(f.goals?.home||0):(f.goals?.away||0);const gaa=ih?(f.goals?.away||0):(f.goals?.home||0);const opp=ih?f.teams?.away?.name:f.teams?.home?.name;return{r:gfa>gaa?'V':gfa===gaa?'E':'D',m:gfa+'-'+gaa,opp:(opp||'').substring(0,10),fid:f.fixture?.id};});}return{f1:gfx(ta),f2:gfx(tb)};}function procNews(gn,na){const kw=['lesion','lesionado','lesiona','baja','suspendi','descart','no jugara','injury','injured','out for','misses','miss match','doubt','ausente','sancion','tarjeta roja','expulsad','ruled out'];function norm2(a){return{t:(a.title||'').substring(0,100),r:(a.description||'').substring(0,140),d:(a.publishedAt||a.publishedAt||'').substring(0,10)};}function score(a){const tx=((a.title||'')+(a.description||'')).toLowerCase();return kw.filter(k=>tx.includes(k)).length;}const gnArts=(gn.articles||[]).map(a=>({...norm2(a),s:score(a)}));const naArts=(na.articles||[]).map(a=>({...norm2(a),s:score(a)}));const seen=new Set();const merged=[];for(const a of[...gnArts,...naArts]){const key=(a.t||'').substring(0,40).toLowerCase();if(!seen.has(key)){seen.add(key);merged.push(a);}}merged.sort((a,b)=>b.s-a.s);const result=merged.slice(0,5);return result.length?result:null;}const odds=procOdds(rawOdds,t1,t2);const afForm=procAF(rawAF,t1,t2);const noticias=procNews(rawGNews,rawNewsAPI);return[{json:{partido:t1+' vs '+t2,fecha:matchDate,hora:matchTime,ronda:matchRound,grupo:matchGroup,estadio:matchStadium,equipo1:t1,equipo2:t2,chatId:ctx.chatId,callbackQueryId:ctx.callbackQueryId,estadisticas:{[t1]:{wc2022:cStats(r22,t1),wc2018:cStats(r18,t1),btts:{wc2022:cBTTS(r22,t1),wc2018:cBTTS(r18,t1)}},[t2]:{wc2022:cStats(r22,t2),wc2018:cStats(r18,t2),btts:{wc2022:cBTTS(r22,t2),wc2018:cBTTS(r18,t2)}}},h2h:{wc2022:getH2H(r22,t1,t2),wc2018:getH2H(r18,t1,t2),total:getH2H(r22,t1,t2).length+getH2H(r18,t1,t2).length},jugadores:{[t1]:{topScorers2026:getTop(t1).filter(p=>p.years.includes(2026)),calidadEquipo:teamQ(t1)},[t2]:{topScorers2026:getTop(t2).filter(p=>p.years.includes(2026)),calidadEquipo:teamQ(t2)}},formaActual:{[t1]:{ultimos5:getForm(t1),standing:getStanding(t1)},[t2]:{ultimos5:getForm(t2),standing:getStanding(t2)}},odds,afForm,noticias}}];"
+      },
+      "id": "27bfe564-a9c7-4d79-8383-a4947f9e00ae",
+      "name": "Calcular Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item=$input.first()?.json||{};const t1=item.equipo1,t2=item.equipo2;const e1=item.estadisticas?.[t1]||{},e2=item.estadisticas?.[t2]||{};const h2h=item.h2h||{},jug=item.jugadores||{},forma=item.formaActual||{};\nfunction fSt(label,s22,s18){let l='['+label+']\\n';l+=s22?.played>0?'WC2022: '+s22.played+'J '+s22.wins+'V'+s22.draws+'E'+s22.losses+'D GF:'+s22.gf+' GC:'+s22.ga+'\\n':'WC2022: sin datos\\n';l+=s18?.played>0?'WC2018: '+s18.played+'J '+s18.wins+'V'+s18.draws+'E'+s18.losses+'D GF:'+s18.gf+' GC:'+s18.ga+'\\n':'WC2018: sin datos\\n';return l;}\nfunction fH2H(list,year){return list?.length?list.slice(0,3).map(m=>'  '+year+' '+m.date+': '+m.home+' '+m.score[0]+'-'+m.score[1]+' '+m.away).join('\\n'):'';}\nfunction fJug(jugData){if(!jugData)return'';let lines='';const sc26=(jugData.topScorers2026||[]).slice(0,3);if(sc26.length)lines+='  Goles 2026: '+sc26.map(p=>p.nombre+'('+p.goles+'G)').join(', ')+'\\n';const q=jugData.calidadEquipo;if(q?.score>0)lines+='  Calidad: '+q.score+'pts\\n';return lines;}\nfunction fForma(tn,fd){if(!fd)return'  Sin datos\\n';let l='';const st=fd.standing;if(st)l+='  '+st.grupo+' pos.'+st.posicion+': '+st.puntos+'pts '+st.victorias+'V'+st.empates+'E'+st.derrotas+'D GF:'+st.gf+' GC:'+st.gc+'\\n';const ult=(fd.ultimos5||[]).slice(0,4);if(ult.length){l+='  Ultimos: '+ult.map(m=>m.resultado+'('+m.marcador+' vs '+m.rival+')').join(' ')+'\\n';const bt=ult.filter(m=>{const[a,b]=m.marcador.split('-').map(Number);return a>0&&b>0;}).length;l+='  BTTS: '+bt+'/'+ult.length+'\\n';}return l;}\nconst h2hT=[fH2H(h2h.wc2022,'WC2022'),fH2H(h2h.wc2018,'WC2018')].filter(Boolean).join('\\n');\nlet modeloStr='';\nif(item.modelo){\n  const mo=item.modelo;\n  const conf=(mo.d1||0)+(mo.d2||0)>4?'Alta':(mo.d1||0)+(mo.d2||0)>0?'Media':'Solo Elo';\n  modeloStr='BASE MATEMATICA (Poisson+Elo) [Fiabilidad:'+conf+']\\n';\n  modeloStr+='Goles esperados: '+t1+' λ='+mo.L1+' | '+t2+' λ='+mo.L2+'\\n';\n  if(mo.gkFactor1!==undefined&&(mo.gkFactor1!==1.0||mo.gkFactor2!==1.0)){\n    modeloStr+='  (λ pre-portero: '+t1+' '+mo.L1_preGK+' | '+t2+' '+mo.L2_preGK+')\\n';\n    modeloStr+='  Portero '+t1+': '+mo.gkNivel1+(mo.gkSavePct1!==null?' ('+Math.round(mo.gkSavePct1*100)+'% saves)':'')+' → factor '+mo.gkFactor1+'\\n';\n    modeloStr+='  Portero '+t2+': '+mo.gkNivel2+(mo.gkSavePct2!==null?' ('+Math.round(mo.gkSavePct2*100)+'% saves)':'')+' → factor '+mo.gkFactor2+'\\n';\n  }\n  modeloStr+='Elo: '+t1+' '+mo.e1+' pts (fuente: '+(mo.elo_fuente||'hardcoded')+') | '+t2+' '+mo.e2+' pts\\n';\n  modeloStr+=t1+' gana: '+mo.pW+'%  Empate: '+mo.pD+'%  '+t2+' gana: '+mo.pL+'%\\n';\n  modeloStr+='Over 2.5: '+mo.pO25+'%  |  BTTS: '+mo.pBTTS+'%\\nCheck Elo: '+t1+' '+mo.eloChk+'%\\n';\n}\nlet xgbStr='';\nif(item.xgb&&!item.xgb.error){const x=item.xgb;xgbStr='\\nXGBoost+Poisson (60/40 blend, 45k partidos historicos):\\n'+t1+' gana: '+(x.prob_team1*100).toFixed(1)+'%  Empate: '+(x.prob_draw*100).toFixed(1)+'%  '+t2+' gana: '+(x.prob_team2*100).toFixed(1)+'%\\nOver 2.5: '+(x.prob_over25*100).toFixed(1)+'%  BTTS: '+(x.prob_btts*100).toFixed(1)+'%\\nConfianza XGBoost: '+x.confidence+'\\n';}\nlet oddsStr='';if(item.odds?.ok){const o=item.odds;oddsStr='\\nCUOTAS MERCADO ('+o.bks+' casas):\\n'+t1+': cuota '+o.o1+' (prob.impl. '+o.p1+'%)\\nEmpate: cuota '+o.oD+' (prob.impl. '+o.pD+'%)\\n'+t2+': cuota '+o.o2+' (prob.impl. '+o.p2+'%)\\n'+(o.oOv?'Over2.5: '+o.oOv+' ('+o.pOv+'%) | Under2.5: '+o.oUn+' ('+o.pUn+'%)\\n':'');}\nlet newsStr='';if(item.noticias?.length){newsStr='\\nNOTICIAS (lesiones/bajas):\\n'+item.noticias.slice(0,3).map(a=>(a.d?a.d+': ':'')+a.t+(a.r?'\\n  '+a.r:'')).join('\\n')+'\\n';}\nlet afStr='';if(item.afForm?.f1?.length){afStr='\\nFORMA WC2026 (API-Football):\\n'+t1+': '+item.afForm.f1.slice(0,3).map(f=>f.r+'('+f.m+' vs '+f.opp+')').join(' ')+'\\n'+t2+': '+item.afForm.f2.slice(0,3).map(f=>f.r+'('+f.m+' vs '+f.opp+')').join(' ')+'\\n';}\nlet statsStr='';if(item.afStats){const s1=item.afStats[t1],s2=item.afStats[t2];const hasData=(s1?.cornersAvg!==null&&s1?.cornersAvg!==undefined)||(s2?.cornersAvg!==null&&s2?.cornersAvg!==undefined);if(hasData){statsStr='\\nESTADISTICAS WC2026 (promedio por partido):\\n';if(s1?.cornersAvg!=null)statsStr+=t1+': Corners '+s1.cornersAvg+' | Tiros '+s1.shotsAvg+' (puerta: '+s1.shotsOTAvg+') | Amarillas '+s1.yellowsAvg+'\\n';if(s2?.cornersAvg!=null)statsStr+=t2+': Corners '+s2.cornersAvg+' | Tiros '+s2.shotsAvg+' (puerta: '+s2.shotsOTAvg+') | Amarillas '+s2.yellowsAvg+'\\n';if(s1?.cornersAvg!=null&&s2?.cornersAvg!=null){const tc=+(s1.cornersAvg+s2.cornersAvg).toFixed(1);const ty=+(s1.yellowsAvg+s2.yellowsAvg).toFixed(1);statsStr+='Total corners esperados: '+tc+' | Total amarillas: '+ty+'\\n';}}}\n// === SECCION PORTEROS ===\nlet gkStr='';\nif(item.gkStats){\n  const gk1=item.gkStats[t1],gk2=item.gkStats[t2];\n  const tieneGK=(gk1?.savePercent!==null&&gk1?.savePercent!==undefined)||(gk2?.savePercent!==null&&gk2?.savePercent!==undefined);\n  if(tieneGK){\n    gkStr='\\nPORTEROS WC2026:\\n';\n    if(gk1&&gk1.savePercent!==null){\n      const sp1=Math.round(gk1.savePercent*100);\n      const destacado1=sp1>=85?' ⭐DESTACADO':'';const bajo1=sp1<55?' ⚠BAJO NIVEL':'';\n      gkStr+=t1+' portero: '+gk1.nivel+destacado1+bajo1+'\\n';\n      gkStr+='  Save%: '+sp1+'% | Saves avg: '+gk1.avgSaves+' por partido | '+gk1.partidosMuestra+' partidos muestra\\n';\n      gkStr+='  Goles concedidos avg: '+(gk1.avgGoalsConc!==null?gk1.avgGoalsConc:'N/D')+' | GkFactor aplicado: '+gk1.gkFactor+' (reduce λ rival)\\n';\n    }else{gkStr+=t1+' portero: sin datos WC2026\\n';}\n    if(gk2&&gk2.savePercent!==null){\n      const sp2=Math.round(gk2.savePercent*100);\n      const destacado2=sp2>=85?' ⭐DESTACADO':'';const bajo2=sp2<55?' ⚠BAJO NIVEL':'';\n      gkStr+=t2+' portero: '+gk2.nivel+destacado2+bajo2+'\\n';\n      gkStr+='  Save%: '+sp2+'% | Saves avg: '+gk2.avgSaves+' por partido | '+gk2.partidosMuestra+' partidos muestra\\n';\n      gkStr+='  Goles concedidos avg: '+(gk2.avgGoalsConc!==null?gk2.avgGoalsConc:'N/D')+' | GkFactor aplicado: '+gk2.gkFactor+' (reduce λ rival)\\n';\n    }else{gkStr+=t2+' portero: sin datos WC2026\\n';}\n  }\n}\n// === RENDIMIENTO HISTORICO DEL MODELO (auto-aprendizaje WC2026) ===\nlet perfStr='';\ntry{\n  const SUPA_URL='https://jwpdukjouvaygefeanfs.supabase.co';\n  const SUPA_KEY=$vars.SUPABASE_SERVICE_KEY||'';\n  if(SUPA_KEY){\n    const rows=await $helpers.httpRequest({\n      method:'GET',\n      url:SUPA_URL+'/rest/v1/predicciones?acierto_1x2=not.is.null&select=acierto_1x2,brier_score&order=created_at.desc&limit=50',\n      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}\n    });\n    if(Array.isArray(rows)&&rows.length>0){\n      const total=rows.length;\n      const aciertos=rows.filter(r=>r.acierto_1x2===true).length;\n      const acc=(aciertos/total*100).toFixed(1);\n      const brierRows=rows.filter(r=>r.brier_score!=null);\n      const brierAvg=brierRows.length>0?(brierRows.reduce((s,r)=>s+r.brier_score,0)/brierRows.length).toFixed(3):null;\n      const last10=rows.slice(0,10);\n      const acc10=(last10.filter(r=>r.acierto_1x2===true).length/Math.min(10,last10.length)*100).toFixed(1);\n      const tendencia=parseFloat(acc10)>parseFloat(acc)?'📈 mejorando':'📉 ajustando';\n      perfStr='\\nRENDIMIENTO MODELO (auto-aprendizaje WC2026):\\n';\n      perfStr+='Precision global: '+acc+'% ('+aciertos+'/'+total+' predicciones resueltas)\\n';\n      perfStr+='Ultimas 10: '+acc10+'% '+tendencia+'\\n';\n      if(brierAvg!==null)perfStr+='Brier Score: '+brierAvg+' (0=perfecto 0.25=aleatorio)\\n';\n    }\n  }\n}catch(e){}\nconst ctxStr=['PARTIDO: '+item.partido,'Fecha: '+item.fecha+' '+(item.hora||''),'Ronda: '+item.ronda+(item.grupo?' Grupo '+item.grupo:''),'','HISTORICO:',fSt(t1,e1.wc2022,e1.wc2018),fSt(t2,e2.wc2022,e2.wc2018),'FORMA WC2026:',t1+':',fForma(t1,forma[t1]),t2+':',fForma(t2,forma[t2]),'H2H: '+(h2h.total>0?h2hT:'Sin H2H en WC recientes'),'JUGADORES:',t1+':',fJug(jug[t1]),t2+':',fJug(jug[t2])].join('\\n');\nlet resumen=modeloStr+xgbStr+perfStr+oddsStr+newsStr+afStr+gkStr+statsStr+'\\n'+ctxStr;\nif(resumen.length>4000)resumen=resumen.substring(0,4000)+'...';\nreturn[{json:{...item,_resumen:resumen}}];"
+      },
+      "id": "8cee824c-97c2-462c-8b6b-b37abd1e0134",
+      "name": "Preparar Resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analiza este partido del Mundial 2026 y genera predicciones en ESPANOL.\n\nDATA:\n{{ $json._resumen }}\n\nREGLAS: texto plano y emojis unicamente. CERO asteriscos, CERO guiones bajos, CERO tablas con |.\n\nESTRUCTURA:\n\n⚽ {{ $json.equipo1 }} vs {{ $json.equipo2 }}\n📅 Fecha: {{ $json.fecha }} {{ $json.hora }}\n🏟 {{ $json.ronda }}{{ $json.grupo ? \" | Grupo: \" + $json.grupo : \"\" }}\n\n-----------------\n📐 MODELO MATEMATICO\n[Si hay XGBoost+Poisson en DATA: muestra esas probabilidades - son el blend oficial 60% XGBoost + 40% Poisson+Elo entrenado con 45k partidos. Si solo hay BASE MATEMATICA: muestra Poisson+Elo. Incluye goles esperados (lambda) y probabilidades 1X2]\n\n-----------------\n🧠 RENDIMIENTO DEL MODELO\n[Solo si hay RENDIMIENTO MODELO en DATA. Muestra en 2-3 lineas: precision global, ultimas 10 predicciones, Brier Score y tendencia. Referencia: Brier menor a 0.20 excelente, 0.20-0.25 bueno, mayor a 0.25 mejorable. Esto refleja el auto-aprendizaje del modelo en partidos WC2026 reales - no datos de entrenamiento. Si la precision mejora indica que el ELO rolling esta funcionando. Si no hay RENDIMIENTO MODELO en DATA, omite esta seccion.]\n\n-----------------\n📊 FORMA ACTUAL WC 2026\n[posicion grupo, puntos, resultados recientes]\n\n-----------------\n📜 HISTORICO 2018 y 2022\n[estadisticas de cada equipo en mundiales anteriores]\n\n-----------------\n⚔ H2H MUNDIALES ANTERIORES\n[enfrentamientos directos o indicar que no hay historial]\n\n-----------------\n⭐ JUGADORES CLAVE 2026\n[goleadores activos de cada equipo]\n\n-----------------\n🧤 PORTERO FACTOR\n[Incluye esta seccion SOLO si hay PORTEROS WC2026 en DATA. Si no hay datos de porteros, omite completamente.]\n\nCuando hay datos de porteros:\nPara cada equipo, muestra en texto plano:\n- Nombre del equipo y nivel del portero (ej: EXCEPCIONAL, Muy bueno, Normal, Bajo, Deficiente)\n- Save% en WC2026 y cuantos partidos de muestra\n- Si el portero tiene marca ⭐DESTACADO: resalta que su actuacion excepcional ya esta incorporada en el modelo como reduccion del lambda rival (indicar cuanto, ej: λ rival reducido x0.85)\n- Si el portero tiene ⚠BAJO NIVEL: advertir que facilita goles al rival\n- GkFactor aplicado y su efecto en los goles esperados\n\nIMPORTANTE: Si un portero tiene Save% mayor a 85% en WC2026, es un factor CRITICO. Mencionalo prominentemente como ventaja competitiva que el modelo ya cuantifica.\n\n-----------------\n🔥 FACTOR MOTIVACIONAL Y EMOCIONAL\n[Incluye esta seccion SOLO si hay NOTICIAS en DATA o si hay contexto motivacional relevante en el partido (primera participacion en mundiales, historia del equipo, contexto familiar/personal conocido de jugadores clave).]\n\nCuando sea relevante:\n- Factores externos que pueden elevar el rendimiento individual o colectivo (historias virales, apoyo familiar, mision personal, debut historico)\n- Factores que pueden reducir el rendimiento (presion excesiva, lesion de lider, conflictos internos)\n- Cuantifica el impacto estimado en terminos de probabilidad: ej. \"+2-4% probabilidad de actuacion sobre el nivel esperado\"\n- Para el Mundial 2026: detecta si algun equipo esta jugando partido trascendental (eliminacion directa, debut, revancha historica)\n\n-----------------\n💰 CUOTAS DE MERCADO\n[si hay CUOTAS MERCADO en DATA: compara con modelo XGBoost/Poisson. Si coinciden = alta confianza. Si divergen mas de 10 puntos porcentuales = ALERTA y explica cual senal es mas confiable y por que. Si no hay cuotas, omite]\n\n-----------------\n📰 NOTICIAS Y ALERTAS\n[si hay NOTICIAS en DATA: analiza lesiones o bajas y cuanto ajustan las probabilidades. Si no hay noticias, omite]\n\n-----------------\n🎯 PREDICCIONES\n\nANTES DE ESCRIBIR ESTA SECCION: identifica los tres valores de probabilidad del modelo (prob_equipo1, prob_empate, prob_equipo2) y determina cual es el MAYOR. Ese MAYOR define el Resultado.\n\nREGLA DE RESULTADO (CRITICA - NO IGNORAR NUNCA):\nResultado = la opcion con el porcentaje MAS ALTO. Simple.\nEjemplo: equipo1=34.9%, empate=34.5%, equipo2=30.6% → Resultado = equipo1 (34.9% es el mayor).\nEjemplo: equipo1=28%, empate=39%, equipo2=33% → Resultado = Empate (39% es el mayor).\nNUNCA escribas Empate como Resultado si el empate no tiene el porcentaje mas alto.\n\nREGLA OVER/UNDER (CRITICA):\nEn la linea Over 2.5: compara los dos porcentajes. La flecha apunta al que sea MAYOR.\nEjemplo: Over 23% | Under 77% → Under (77% > 23%, entonces Under).\nEjemplo: Over 58% | Under 42% → Over (58% > 42%, entonces Over).\n\nREGLA BTTS (CRITICA):\nEn la linea BTTS: compara los dos porcentajes. La flecha apunta al que sea MAYOR.\nEjemplo: Si 32% | No 68% → No (68% > 32%, entonces No).\nEjemplo: Si 61% | No 39% → Si (61% > 39%, entonces Si).\n\nREGLA DE CONFIANZA:\nAlta: el lider supera el 55%.\nMedia: el lider esta entre 40% y 55%.\nBaja: el lider esta por debajo del 40%.\n\nLas probabilidades 1X2 DEBEN sumar exactamente 100%.\n\nUSA EXACTAMENTE ESTE FORMATO (sin cambios):\n1X2: {{ $json.equipo1 }} XX% | Empate XX% | {{ $json.equipo2 }} XX%\nResultado: [equipo ganador o Empate segun regla de resultado] - Confianza [Alta/Media/Baja]\nOver 2.5: Over XX% | Under XX% → [Over o Under segun regla over/under]\nBTTS: Si XX% | No XX% → [Si o No segun regla btts]\n\n-----------------\n🏆 MERCADOS ALTERNATIVOS\n[Incluye esta seccion SOLO si hay ESTADISTICAS WC2026 en DATA. Si no hay, omite completamente.]\n\nCuando hay datos de estadisticas:\n- Muestra corners esperados (suma de ambos equipos) y estima probabilidades: \"Mas de 7.5 corners: XX%\"\n- Muestra tarjetas amarillas esperadas y estima: \"Mas de 3.5 amarillas: XX%\"\n- Muestra tiros a puerta totales esperados\n\nLuego genera TOP 5 APUESTAS ordenadas de mayor a menor probabilidad estimada.\nUsa este formato exacto (texto plano, sin tablas):\n1. [mercado] [probabilidad]% Riesgo [Bajo si >70% / Medio si 50-70% / Alto si <50%]\n2. ...\n\nClasifica Doble Oportunidad cuando tiene alta probabilidad.\n\n-----------------\n💡 CONCLUSION\nMUY IMPORTANTE: La conclusion DEBE ser consistente con el Resultado de la seccion PREDICCIONES.\nSi Resultado = {{ $json.equipo1 }}: la conclusion dice que el modelo favorece a {{ $json.equipo1 }}.\nSi Resultado = {{ $json.equipo2 }}: la conclusion dice que el modelo favorece a {{ $json.equipo2 }}.\nSi Resultado = Empate: la conclusion dice que el modelo ve un partido muy parejo con empate como resultado mas probable.\nProhibido contradecir el Resultado en la conclusion. Prohibido decir que el modelo predice empate si el Resultado no es Empate.\n2-3 lineas mencionando: lambdas esperados, efecto portero si aplica, posicion del mercado, precision actual del modelo si esta disponible, y conclusion final alineada con el Resultado.",
+        "options": {
+          "systemMessage": "Eres un analista cuantitativo de fútbol. Se te entrega el OUTPUT de modelos matemáticos (XGBoost+Poisson+Elo entrenado con 45,000 partidos históricos). Tu rol es presentar esas probabilidades y ajustar SOLO si hay evidencia concreta de lesiones o bajas. NO inventas probabilidades. Respondes SIEMPRE en español. Usas SOLO texto plano y emojis. NUNCA uses asteriscos, guiones bajos ni tablas markdown.",
+          "maxIterations": 3
+        }
+      },
+      "id": "4569bad6-9f1d-4f33-84a3-fc895f4181df",
+      "name": "Analista IA",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1792,
+        768
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": "llama-3.1-8b-instant",
+        "options": {
+          "maxTokensToSample": 700,
+          "temperature": 0.4
+        }
+      },
+      "id": "26b77f5c-8c26-46ba-8ae1-9ae6f15adadc",
+      "name": "Groq Llama",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        1872,
+        992
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "S5bLYwLT8xGVpgSU",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $(\"Parse Callback\").first().json.chatId }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "7bef5a31-a0d5-4df3-9eb3-d65e37b94f88",
+      "name": "Enviar Analisis",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2144,
+        768
+      ],
+      "webhookId": "31a7fa00-4a96-43c1-bf7b-bf28675e3f41",
+      "credentials": {
+        "telegramApi": {
+          "id": "Z7e7aa2o6MROM6OA",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $vars.TELEGRAM_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.reply_markup ? { chat_id: $json.chatId, text: ($json.text||'').substring(0,4000), reply_markup: $json.reply_markup } : { chat_id: $json.chatId, text: ($json.text||'').substring(0,4000) }) }}",
+        "options": {}
+      },
+      "id": "dbd46867-7030-4d26-b85a-8d429973028c",
+      "name": "Enviar Menu",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const out=$json.output||'';\nconst prep=$('Preparar Resumen').first().json;\nfunction ex1x2(t){\n  const mRes=t.match(/Resultado:\\s*([A-Za-zÀ-ɏ ]+?)\\s*-\\s*Confianza\\s*(\\w+)/i);\n  if(!mRes)return{pred:null,conf:null};\n  const ldr=mRes[1].trim().toLowerCase();\n  let pred='empate';\n  if(ldr.includes((prep.equipo1||'').toLowerCase().trim()))pred='equipo1';\n  else if(ldr.includes((prep.equipo2||'').toLowerCase().trim()))pred='equipo2';\n  return{pred,conf:mRes[2]};\n}\nfunction exProbs(t){\n  const m=t.match(/1X2:[^\\n]*(\\d+(?:\\.\\d+)?)%[^\\n]*Empate[^\\n]*(\\d+(?:\\.\\d+)?)%[^\\n]*(\\d+(?:\\.\\d+)?)%/i);\n  if(!m)return null;\n  const p1=parseFloat(m[1]),pD=parseFloat(m[2]),p2=parseFloat(m[3]);\n  const s=p1+pD+p2;\n  if(s<50||s>150)return null;\n  return{p1:+(p1/100).toFixed(4),pD:+(pD/100).toFixed(4),p2:+(p2/100).toFixed(4)};\n}\nfunction exOver(t){\n  const m=t.match(/Over\\s*2\\.5:[^\\n]*(\\d+(?:\\.\\d+)?)%[^\\n]*(\\d+(?:\\.\\d+)?)%[^\\n]*[→>\\s]+(Over|Under)/i);\n  if(m)return{pred:m[3]};\n  const m2=t.match(/Over\\s*2\\.5[:\\s]+(Over|Under)/i);\n  return m2?{pred:m2[1]}:null;\n}\nconst{pred:p1x2Text,conf:pConf}=ex1x2(out);\nconst mOver=exOver(out);\nconst mBTTS=out.match(/BTTS[:\\s]+(Si|No)/i);\nconst parsedProbs=exProbs(out);\nconst mo=prep.modelo||{};\n// pred_prob: SIEMPRE del modelo Poisson+ELO (fuente canonica)\nconst pred_prob_t1=mo.pW?+(mo.pW/100).toFixed(4):null;\nconst pred_prob_draw=mo.pD?+(mo.pD/100).toFixed(4):null;\nconst pred_prob_t2=mo.pL?+(mo.pL/100).toFixed(4):null;\nlet probLocal=null,probEmpate=null,probVisita=null,oddLocal=null,oddEmpate=null,oddVisita=null;\n// PRIORIDAD 1: modelo Poisson+ELO\nif(pred_prob_t1!==null){\n  probLocal=pred_prob_t1;probEmpate=pred_prob_draw;probVisita=pred_prob_t2;\n}else if(parsedProbs){\n  probLocal=parsedProbs.p1;probEmpate=parsedProbs.pD;probVisita=parsedProbs.p2;\n}else{\n  const odds=prep.odds;\n  if(odds?.ok&&odds.p1&&odds.pD&&odds.p2){\n    const s=odds.p1+odds.pD+odds.p2;\n    probLocal=+((odds.p1/s).toFixed(4));probEmpate=+((odds.pD/s).toFixed(4));probVisita=+((odds.p2/s).toFixed(4));\n  }\n}\nlet p1x2=p1x2Text;\nif(probLocal!==null&&probEmpate!==null&&probVisita!==null){\n  if(probLocal>=probEmpate&&probLocal>=probVisita)p1x2='equipo1';\n  else if(probVisita>=probLocal&&probVisita>=probEmpate)p1x2='equipo2';\n  else p1x2='empate';\n}\nlet finalConf=pConf;\nif(!finalConf&&probLocal!==null){\n  const winProb=Math.max(probLocal,probEmpate||0,probVisita||0);\n  if(winProb>=0.55)finalConf='Alta';\n  else if(winProb>=0.40)finalConf='Media';\n  else finalConf='Baja';\n}\nif(prep.odds?.ok){oddLocal=prep.odds.o1;oddEmpate=prep.odds.oD;oddVisita=prep.odds.o2;}\nconst newsText=(prep.noticias||[]).map(n=>(n.t||'')+' '+(n.r||'')).join(' ').toLowerCase();\nconst tieneLesiones=['lesion','injury','injured','lesionado','out injured'].some(k=>newsText.includes(k));\nconst tieneSuspension=['suspendi','sancion','tarjeta roja','expulsad','suspended'].some(k=>newsText.includes(k));\nconst hayNoticias=newsText.trim().length>10;\n// === PROB MERCADO: margin removal con cuotas decimales reales ===\nlet probMercadoLocal=null,probMercadoEmpate=null,probMercadoVisita=null;\nif(prep.odds?.ok&&oddLocal>1&&oddEmpate>1&&oddVisita>1){\n  const inv1=1/oddLocal,invD=1/oddEmpate,inv2=1/oddVisita;\n  const sumInv=inv1+invD+inv2;\n  if(sumInv>0){\n    probMercadoLocal=+(inv1/sumInv).toFixed(4);\n    probMercadoEmpate=+(invD/sumInv).toFixed(4);\n    probMercadoVisita=+(inv2/sumInv).toFixed(4);\n  }\n}\n// === PROB MODELO PURO: pred_prob_t1 = Poisson+ELO, NUNCA reemplazado por mercado ===\nconst probModeloLocal=pred_prob_t1;\nconst probModeloEmpate=pred_prob_draw;\nconst probModeloVisita=pred_prob_t2;\n// === DELTA = MODELO - MERCADO ===\nconst deltaLocal=(probModeloLocal!==null&&probMercadoLocal!==null)?+(probModeloLocal-probMercadoLocal).toFixed(4):null;\nconst deltaEmpate=(probModeloEmpate!==null&&probMercadoEmpate!==null)?+(probModeloEmpate-probMercadoEmpate).toFixed(4):null;\nconst deltaVisita=(probModeloVisita!==null&&probMercadoVisita!==null)?+(probModeloVisita-probMercadoVisita).toFixed(4):null;\n// === VARIABLES INTERMEDIAS DEL MODELO ===\nconst lambda1Val=mo.L1??null;\nconst lambda2Val=mo.L2??null;\nconst elo1Val=mo.e1??null;\nconst elo2Val=mo.e2??null;\nconst eloDiffVal=(elo1Val!==null&&elo2Val!==null)?(elo1Val-elo2Val):null;\nconst xgTotalVal=(lambda1Val!==null&&lambda2Val!==null)?+(lambda1Val+lambda2Val).toFixed(4):null;\nconst lambda1PregkVal=mo.L1_preGK??null;\nconst lambda2PregkVal=mo.L2_preGK??null;\nconst gkFactor1Val=mo.gkFactor1??null;\nconst gkFactor2Val=mo.gkFactor2??null;\n// === XGBOOST INTERMEDIAS ===\nconst xgb=prep.xgb||{};\nconst xgbOk=!xgb.error&&xgb.prob_team1!==undefined;\nconst xgbProbLocalVal=xgbOk?+(xgb.prob_team1).toFixed(4):null;\nconst xgbProbEmpateVal=xgbOk?+(xgb.prob_draw).toFixed(4):null;\nconst xgbProbVisitaVal=xgbOk?+(xgb.prob_team2).toFixed(4):null;\nconst xgbConfidenceVal=xgb.confidence??null;\n// === OVER 2.5 AJUSTADO: formula calibrada WC (3 deltas) ===\n// NO modifica la logica del modelo Poisson. Solo ajusta la decision final.\nlet overPred=mOver?.pred||null; // PRIORIDAD: si LLM da Over/Under explicito, respetarlo\nlet predProbOver25BaseVal=mo.pO25?+(mo.pO25/100).toFixed(4):null; // Poisson puro (trazabilidad)\nlet predProbOver25Val=predProbOver25BaseVal; // default = base\nif(!overPred&&mo.pO25!==undefined&&mo.pO25!==null){\n  let pOver=mo.pO25/100;\n  // --- delta_WC: ajuste por ronda del Mundial ---\n  const rondaLower=(prep.ronda||'').toLowerCase();\n  const esGrupo=rondaLower.includes('matchday')||rondaLower.includes('group stage')||rondaLower.includes('fase de grupos');\n  const esKnockout=rondaLower.includes('final')||rondaLower.includes('semi')||rondaLower.includes('quarter')||rondaLower.includes('round of')||rondaLower.includes('octavo')||rondaLower.includes('cuarto');\n  if(esGrupo){pOver-=0.06;}else if(esKnockout){pOver-=0.03;}\n  // --- delta_ELO: favorito extremo = underdog defiende ---\n  const absEloDiff=(elo1Val!==null&&elo2Val!==null)?Math.abs(elo1Val-elo2Val):0;\n  if(absEloDiff>400){pOver-=0.12;}else if(absEloDiff>250){pOver-=0.06;}else if(absEloDiff>100){pOver-=0.02;}\n  // --- delta_equilibrio: partido muy igualado = tension tactica WC ---\n  const pMax=Math.max(probLocal||0,probEmpate||0,probVisita||0);\n  if(pMax<0.45){pOver-=0.04;}else if(pMax<0.55){pOver-=0.02;}\n  // --- clip y decision ---\n  pOver=Math.max(0.05,Math.min(0.95,pOver));\n  predProbOver25Val=+pOver.toFixed(4); // probabilidad ajustada (sobreescribe base)\n  overPred=pOver>=0.52?'Over':'Under'; // umbral conservador calibrado WC\n}\n// Fallback si no hay pO25 (no deberia ocurrir con modelo activo)\nif(!overPred&&lambda1Val&&lambda2Val){\n  overPred=xgTotalVal>=2.5?'Over':'Under';\n}\nreturn[{json:{\n  equipo1:prep.equipo1,equipo2:prep.equipo2,\n  fecha:prep.fecha,hora:prep.hora||null,\n  ronda:prep.ronda||null,grupo:prep.grupo||null,\n  pred_1x2:p1x2,pred_1x2_confianza:finalConf||null,\n  pred_over25:overPred,\n  pred_btts:mBTTS?mBTTS[1]:null,\n  analisis_completo:out.substring(0,3000),\n  prob_local:probLocal,prob_empate:probEmpate,prob_visita:probVisita,\n  pred_prob_t1,pred_prob_draw,pred_prob_t2,\n  odd_local:oddLocal,odd_empate:oddEmpate,odd_visita:oddVisita,\n  tiene_lesiones:tieneLesiones,tiene_suspension:tieneSuspension,\n  hay_noticias_impacto:hayNoticias,\n  modelo:mo,\n  afStats:prep.afStats||null,\n  prob_modelo_local:probModeloLocal,\n  prob_modelo_empate:probModeloEmpate,\n  prob_modelo_visita:probModeloVisita,\n  prob_mercado_local:probMercadoLocal,\n  prob_mercado_empate:probMercadoEmpate,\n  prob_mercado_visita:probMercadoVisita,\n  delta_local:deltaLocal,\n  delta_empate:deltaEmpate,\n  delta_visita:deltaVisita,\n  lambda1_val:lambda1Val,\n  lambda2_val:lambda2Val,\n  elo1_val:elo1Val,\n  elo2_val:elo2Val,\n  elo_diff_val:eloDiffVal,\n  xg_total_val:xgTotalVal,\n  lambda1_pregk_val:lambda1PregkVal,\n  lambda2_pregk_val:lambda2PregkVal,\n  gk_factor1_val:gkFactor1Val,\n  gk_factor2_val:gkFactor2Val,\n  pred_prob_over25_val:predProbOver25Val,\n  pred_prob_over25_base:predProbOver25BaseVal,\n  pred_prob_btts_si_val:mo.pBTTS?+(mo.pBTTS/100).toFixed(4):null,\n  xgb_prob_local_val:xgbProbLocalVal,\n  xgb_prob_empate_val:xgbProbEmpateVal,\n  xgb_prob_visita_val:xgbProbVisitaVal,\n  xgb_confidence_val:xgbConfidenceVal\n}}];"
+      },
+      "id": "90b5fa79-94e2-46d8-987f-0c0077211464",
+      "name": "Parsear Prediccion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2144,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://jwpdukjouvaygefeanfs.supabase.co/rest/v1/predicciones",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3cGR1a2pvdXZheWdlZmVhbmZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MTE4NzksImV4cCI6MjA5NzM4Nzg3OX0.nE2OBR3A5zUIAQGBP-9Ou-hze56jykzjmTHMRmw0loc"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp3cGR1a2pvdXZheWdlZmVhbmZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MTE4NzksImV4cCI6MjA5NzM4Nzg3OX0.nE2OBR3A5zUIAQGBP-9Ou-hze56jykzjmTHMRmw0loc"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates,return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  equipo1: $json.equipo1,\n  equipo2: $json.equipo2,\n  fecha: $json.fecha,\n  hora: $json.hora,\n  ronda: $json.ronda,\n  grupo: $json.grupo,\n  pred_1x2: $json.pred_1x2 === 'equipo1' ? $json.equipo1 : $json.pred_1x2 === 'equipo2' ? $json.equipo2 : ($json.pred_1x2 === 'empate' ? 'Empate' : $json.pred_1x2),\n  pred_1x2_confianza: $json.pred_1x2_confianza,\n  pred_over25: $json.pred_over25,\n  pred_btts: $json.pred_btts,\n  analisis_completo: $json.analisis_completo,\n  prob_local: $json.prob_local,\n  prob_empate: $json.prob_empate,\n  prob_visita: $json.prob_visita,\n  pred_prob_t1: $json.pred_prob_t1 ?? null,\n  pred_prob_draw: $json.pred_prob_draw ?? null,\n  pred_prob_t2: $json.pred_prob_t2 ?? null,\n  odd_local: $json.odd_local,\n  odd_empate: $json.odd_empate,\n  odd_visita: $json.odd_visita,\n  tiene_lesiones: $json.tiene_lesiones,\n  tiene_suspension: $json.tiene_suspension,\n  hay_noticias_impacto: $json.hay_noticias_impacto,\n  corners_avg: $json.afStats ? (($json.afStats[$json.equipo1]?.cornersAvg ?? 0) + ($json.afStats[$json.equipo2]?.cornersAvg ?? 0)) : null,\n  amarillas_avg: $json.afStats ? (($json.afStats[$json.equipo1]?.yellowsAvg ?? 0) + ($json.afStats[$json.equipo2]?.yellowsAvg ?? 0)) : null,\n  tiros_avg: $json.afStats ? (($json.afStats[$json.equipo1]?.shotsAvg ?? 0) + ($json.afStats[$json.equipo2]?.shotsAvg ?? 0)) : null,\n  prob_modelo_local: $json.prob_modelo_local ?? null,\n  prob_modelo_empate: $json.prob_modelo_empate ?? null,\n  prob_modelo_visita: $json.prob_modelo_visita ?? null,\n  prob_mercado_local: $json.prob_mercado_local ?? null,\n  prob_mercado_empate: $json.prob_mercado_empate ?? null,\n  prob_mercado_visita: $json.prob_mercado_visita ?? null,\n  delta_local: $json.delta_local ?? null,\n  delta_empate: $json.delta_empate ?? null,\n  delta_visita: $json.delta_visita ?? null,\n  lambda1: $json.lambda1_val ?? null,\n  lambda2: $json.lambda2_val ?? null,\n  elo1: $json.elo1_val ?? null,\n  elo2: $json.elo2_val ?? null,\n  elo_diff: $json.elo_diff_val ?? null,\n  xg_total: $json.xg_total_val ?? null,\n  lambda1_pregk: $json.lambda1_pregk_val ?? null,\n  lambda2_pregk: $json.lambda2_pregk_val ?? null,\n  gk_factor1: $json.gk_factor1_val ?? null,\n  gk_factor2: $json.gk_factor2_val ?? null,\n  pred_prob_over25: $json.pred_prob_over25_val ?? null,\n  pred_prob_over25_base: $json.pred_prob_over25_base ?? null,\n  pred_prob_btts_si: $json.pred_prob_btts_si_val ?? null,\n  xgb_prob_local: $json.xgb_prob_local_val ?? null,\n  xgb_prob_empate: $json.xgb_prob_empate_val ?? null,\n  xgb_prob_visita: $json.xgb_prob_visita_val ?? null,\n  xgb_confidence: $json.xgb_confidence_val ?? null\n}) }}",
+        "options": {}
+      },
+      "id": "bb5ccd89-2f96-4a97-866f-6ead813ded5c",
+      "name": "Guardar Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2368,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/?apiKey=66ce87d7f976181db2383c4b59716840&regions=eu&markets=h2h,totals&oddsFormat=decimal",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "29f08b44-d2f9-4a6f-b92f-89c7c87d733d",
+      "name": "HTTP Odds API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        1344
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://v3.football.api-sports.io/fixtures?league=1&season=2026",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apisports-key",
+              "value": "6ff9af31322694c6131ad6f159870363"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "e06861df-8d2a-4e5d-98b0-13e4c72a95a0",
+      "name": "HTTP API Football",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        1536
+      ],
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://gnews.io/api/v4/search?q=' + encodeURIComponent($input.first().json.team1 + ' OR ' + $input.first().json.team2 + ' (lesion OR injury OR baja OR lesionado)') + '&token=f60826dbcd02c7d7a7d1b7e4859e2321&max=5&sortby=publishedAt&in=title,description' }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "ab6b9769-8712-4c56-8a6b-9ef112220828",
+      "name": "HTTP GNews",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        1728
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://newsapi.org/v2/everything?q=' + encodeURIComponent('\"' + $input.first().json.team1 + '\" OR \"' + $input.first().json.team2 + '\" (lesion OR injury OR baja OR lesionado)') + '&apiKey=B6exZxiA2VuPXiun4O43TJIY2GbD02W3psjLxIAC&sortBy=publishedAt&pageSize=5&searchIn=title,description' }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "b1606910-d2cf-4b98-902a-47507acc53f8",
+      "name": "HTTP NewsAPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        1920
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The Odds API returns a JSON array → n8n splits it into N items.\n// Reunimos todos los items en uno solo con {data: [...]}.\nconst items = $input.all();\nconst events = items\n  .map(i => i.json)\n  .filter(e => e && e.home_team && e.away_team && e.bookmakers);\nreturn [{json: {data: events}}];"
+      },
+      "id": "dd642b6d-d626-4fce-83cf-b92bd5c3f789",
+      "name": "Consolidar Odds",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        1344
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item=$input.first().json;\nconst t1=item.equipo1,t2=item.equipo2;\n// === CARGAR PARAMS ADAPTATIVOS DESDE SUPABASE ===\nconst SUPA_URL='https://jwpdukjouvaygefeanfs.supabase.co';\nconst SUPA_KEY=$vars.SUPABASE_SERVICE_KEY||'';\nlet PRIOR_N=1;\nlet ELO_RULES=[{cutoff:150,factor:0.90},{cutoff:250,factor:0.85}];\nlet LAMBDA2_FLOOR=0.50;\nlet LAMBDA2_FLAT=1.0;\nif(SUPA_KEY){\n  try{\n    const pr=await $helpers.httpRequest({\n      method:'GET',\n      url:`${SUPA_URL}/rest/v1/model_params?activo=eq.true&select=prior_n,elo_class_rules,lambda2_flat_factor,lambda2_floor&limit=1`,\n      headers:{'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}`}\n    });\n    const row=Array.isArray(pr)?pr[0]:null;\n    if(row){\n      PRIOR_N=row.prior_n??PRIOR_N;\n      ELO_RULES=Array.isArray(row.elo_class_rules)&&row.elo_class_rules.length?row.elo_class_rules:ELO_RULES;\n      LAMBDA2_FLOOR=row.lambda2_floor??LAMBDA2_FLOOR;\n      LAMBDA2_FLAT=row.lambda2_flat_factor??LAMBDA2_FLAT;\n    }\n  }catch(e){}\n}\n// === ELO DINAMICO DESDE SUPABASE (rolling, aprende de resultados WC2026) ===\nlet eloDinamico={};\nif(SUPA_KEY){\n  try{\n    const eloRows=await $helpers.httpRequest({\n      method:'GET',\n      url:`${SUPA_URL}/rest/v1/elo_equipos?select=equipo,elo&limit=200`,\n      headers:{'apikey':SUPA_KEY,'Authorization':`Bearer ${SUPA_KEY}`}\n    });\n    if(Array.isArray(eloRows))eloRows.forEach(r=>{if(r.equipo)eloDinamico[r.equipo.toLowerCase()]=r.elo;});\n  }catch(e){}\n}\n// === ELO RATINGS ESTATICO (fallback) ===\nconst ELO={\n  'argentina':2095,'france':2078,'brazil':2068,'england':2055,'spain':2042,\n  'germany':2022,'portugal':2008,'netherlands':1993,'belgium':1982,'italy':1975,\n  'croatia':1962,'morocco':1945,'usa':1942,'united states':1942,'switzerland':1938,\n  'mexico':1932,'denmark':1928,'uruguay':1925,'colombia':1918,'japan':1905,\n  'senegal':1895,'scotland':1848,'chile':1870,'australia':1882,'south korea':1872,\n  'republic of korea':1872,'canada':1858,'ecuador':1848,'peru':1842,'austria':1820,\n  'turkey':1808,'nigeria':1795,'cameroon':1798,'ghana':1798,'costa rica':1790,\n  'serbia':1800,'ukraine':1792,'wales':1782,'tunisia':1782,'algeria':1785,\n  'iran':1775,'saudi arabia':1752,'qatar':1720,'new zealand':1700,'poland':1835,\n  'paraguay':1800,'venezuela':1780,'panama':1780,'honduras':1770,'bolivia':1760,\n  'egypt':1780,'dr congo':1770,'south africa':1762,'slovakia':1762,'slovenia':1758,\n  'romania':1780,'czech republic':1780,'hungary':1790,'ivory coast':1815,\n  \"cote d'ivoire\":1815,'el salvador':1755,'jamaica':1760,'iraq':1760,\n  'new caledonia':1660,'cabo verde':1835,'cape verde':1835,'caboverde':1835,\n  'albania':1740,'georgia':1762,'greece':1800,'uzbekistan':1762,\n  'jordan':1720,'tanzania':1720,'trinidad and tobago':1655,'trinidad':1655,\n  'cuba':1622,'mali':1780,'guinea':1760,'kenya':1700,'zambia':1710,\n  'thailand':1700,'china':1780,'india':1692,'vietnam':1682,'indonesia':1688,\n  'bahrain':1718,'oman':1715,'kuwait':1698,\n  'united arab emirates':1725,'uae':1725,'haiti':1695,'guatemala':1758\n};\nfunction getElo(t){\n  const n=(t||'').toLowerCase().replace(/[^a-z ]/g,' ').replace(/\\s+/g,' ').trim();\n  // PRIORIDAD 1: ELO dinamico Supabase (rolling)\n  if(eloDinamico[n])return eloDinamico[n];\n  for(const[k,v]of Object.entries(eloDinamico)){if(n===k||n.includes(k)||k.includes(n))return v;}\n  // PRIORIDAD 2: ELO estatico (fallback)\n  if(ELO[n])return ELO[n];\n  for(const[k,v]of Object.entries(ELO)){if(n===k||n.includes(k)||k.includes(n))return v;}\n  return 1800;\n}\n// === STRENGTHS ===\nconst WC_AVG=1.28;\nconst AF_WEIGHT=2;\nfunction strength(stats,afForms){\n  let tGF=0,tGA=0,tW=0;\n  if((stats.wc2022?.played||0)>0){tGF+=stats.wc2022.gf/stats.wc2022.played*2;tGA+=stats.wc2022.ga/stats.wc2022.played*2;tW+=2;}\n  if((stats.wc2018?.played||0)>0){tGF+=stats.wc2018.gf/stats.wc2018.played;tGA+=stats.wc2018.ga/stats.wc2018.played;tW+=1;}\n  const af=Array.isArray(afForms)?afForms:[];\n  let afGF=0,afGA=0,afN=0;\n  for(const f of af){const p=(f.m||'').split('-').map(Number);if(p.length===2&&!isNaN(p[0])&&!isNaN(p[1])){afGF+=p[0];afGA+=p[1];afN++;}}\n  if(afN>0){tGF+=afGF/afN*AF_WEIGHT;tGA+=afGA/afN*AF_WEIGHT;tW+=AF_WEIGHT;}\n  const shrunkGF=(tGF+WC_AVG*PRIOR_N)/(tW+PRIOR_N);\n  const shrunkGA=(tGA+WC_AVG*PRIOR_N)/(tW+PRIOR_N);\n  const att=shrunkGF/WC_AVG;\n  const def=shrunkGA/WC_AVG;\n  const avgGF=tW>0?tGF/tW:WC_AVG;\n  const avgGA=tW>0?tGA/tW:WC_AVG;\n  return{att,def,avgGF:+avgGF.toFixed(2),avgGA:+avgGA.toFixed(2),w:tW};\n}\nconst s1=strength(item.estadisticas?.[t1]||{},item.afForm?.f1);\nconst s2=strength(item.estadisticas?.[t2]||{},item.afForm?.f2);\nconst e1=getElo(t1),e2=getElo(t2),eDiff=(e1-e2)/800;\n// === LAMBDAS BASE ===\nlet L1,L2;\nif(s1.w===0&&s2.w===0){L1=WC_AVG*(1+eDiff*0.5);L2=WC_AVG*(1-eDiff*0.5);}\nelse if(s1.w===0){L1=s2.def*WC_AVG*(1+eDiff*0.3);L2=s2.att*WC_AVG;}\nelse if(s2.w===0){L1=s1.att*WC_AVG;L2=s1.def*WC_AVG*(1-eDiff*0.3);}\nelse{L1=s1.att*s2.def*WC_AVG*(1+eDiff*0.15);L2=s2.att*s1.def*WC_AVG*(1-eDiff*0.15);}\n// === REGLAS ELO ADAPTATIVAS ===\nconst eloDiffAbs=Math.abs(e1-e2);\nconst rulesOrdenadas=[...ELO_RULES].sort((a,b)=>b.cutoff-a.cutoff);\nfor(const rule of rulesOrdenadas){if(eloDiffAbs>rule.cutoff){L2*=rule.factor;break;}}\nL2*=LAMBDA2_FLAT;\n// === GOALKEEPER FACTOR ===\nconst gk1=item.gkStats?.[t1]||null;\nconst gk2=item.gkStats?.[t2]||null;\nconst gkFactor1=gk1?.gkFactor??1.0;\nconst gkFactor2=gk2?.gkFactor??1.0;\nconst L1_preGK=L1;\nconst L2_preGK=L2;\nL1=L1*gkFactor2;\nL2=L2*gkFactor1;\nL1=Math.max(0.75,Math.min(4.0,L1));L2=Math.max(LAMBDA2_FLOOR,Math.min(4.0,L2));\n// === POISSON ===\nfunction lf(n){let r=0;for(let i=2;i<=n;i++)r+=Math.log(i);return r;}\nfunction pp(l,k){return Math.exp(-l+k*Math.log(Math.max(l,1e-9))-lf(k));}\nlet pW=0,pD=0,pL=0;\nfor(let i=0;i<=8;i++)for(let j=0;j<=8;j++){const p=pp(L1,i)*pp(L2,j);if(i>j)pW+=p;else if(i===j)pD+=p;else pL+=p;}\nconst tot=pW+pD+pL;pW/=tot;pD/=tot;pL/=tot;\nlet pU=0;for(let i=0;i<=2;i++)for(let j=0;j<=2-i;j++)pU+=pp(L1,i)*pp(L2,j);\nconst pBTTS=(1-Math.exp(-L1))*(1-Math.exp(-L2));\nconst eloChk=+(1/(1+Math.pow(10,(e2-e1)/400))*100).toFixed(1);\nconst modelo={\n  L1:+L1.toFixed(2),L2:+L2.toFixed(2),\n  L1_preGK:+L1_preGK.toFixed(2),L2_preGK:+L2_preGK.toFixed(2),\n  e1,e2,\n  pW:+(pW*100).toFixed(1),pD:+(pD*100).toFixed(1),pL:+(pL*100).toFixed(1),\n  pO25:+((1-pU)*100).toFixed(1),pBTTS:+(pBTTS*100).toFixed(1),\n  eloChk,d1:s1.w,d2:s2.w,\n  s1avgGF:s1.avgGF,s1avgGA:s1.avgGA,s2avgGF:s2.avgGF,s2avgGA:s2.avgGA,\n  prior_n_usado:PRIOR_N,elo_rules_activas:ELO_RULES.length,\n  gkFactor1:+gkFactor1.toFixed(3),gkFactor2:+gkFactor2.toFixed(3),\n  gkNivel1:gk1?.nivel||'sin datos',gkNivel2:gk2?.nivel||'sin datos',\n  gkSavePct1:gk1?.savePercent||null,gkSavePct2:gk2?.savePercent||null,\n  elo_fuente:Object.keys(eloDinamico).length>0?'supabase_rolling':'hardcoded_fallback',\n  elo_equipos_cargados:Object.keys(eloDinamico).length\n};\nreturn[{json:{...item,modelo}}];"
+      },
+      "id": "9f3b6d2d-8f92-4362-9a04-45d383d34b24",
+      "name": "Modelo Matematico",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item=$input.first().json;\nconst t1=item.equipo1||'';\nconst t2=item.equipo2||'';\n\n// Extraer forma de API Football (r='V'/'E'/'D', m='2-1', opp='Mexico')\nfunction buildForm(afArr){\n  const af=Array.isArray(afArr)?afArr:[];\n  if(!af.length)return null;\n  let wins=0,draws=0,losses=0,gf=0,ga=0;\n  for(const f of af){\n    const parts=(f.m||'').split('-').map(Number);\n    if(parts.length===2&&!isNaN(parts[0])&&!isNaN(parts[1])){gf+=parts[0];ga+=parts[1];}\n    if(f.r==='V')wins++;\n    else if(f.r==='E')draws++;\n    else losses++;\n  }\n  const played=wins+draws+losses;\n  return played>0?{wins,draws,losses,gf,ga,played}:null;\n}\n\nconst form1=buildForm(item.afForm?.f1);\nconst form2=buildForm(item.afForm?.f2);\n\nconst body={team1:t1,team2:t2,is_wc:true,is_major_tournament:true,...(form1&&{form1}),...(form2&&{form2})};\n\nlet xgb=null;\ntry{\n  xgb=await $helpers.httpRequest({\n    method:'POST',\n    url:'https://wc-predictor-f583.onrender.com/predict',\n    headers:{'Content-Type':'application/json'},\n    body:JSON.stringify(body),\n    timeout:12000,\n  });\n}catch(e){\n  xgb={error:e.message,model_used:'unavailable'};\n}\n\nreturn[{json:{...item,xgb}}];"
+      },
+      "id": "9db38e2e-3fd8-4cc3-8d48-80a9f1c2e497",
+      "name": "XGBoost Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        768
+      ],
+      "executeOnce": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item=$input.first().json;\nconst AF_KEY=$vars.API_FOOTBALL_KEY||'6ff9af31322694c6131ad6f159870363';\nconst t1=item.equipo1,t2=item.equipo2;\nconst f1ids=(item.afForm?.f1||[]).map(f=>f.fid).filter(Boolean);\nconst f2ids=(item.afForm?.f2||[]).map(f=>f.fid).filter(Boolean);\nconst allIds=[...new Set([...f1ids,...f2ids])];\nif(!allIds.length)return[{json:{...item,afStats:null,gkStats:null}}];\n\nfunction nm(a,b){if(!a||!b)return false;const n=s=>s.toLowerCase().replace(/[^a-z]/g,'');return n(a)===n(b)||n(a).includes(n(b))||n(b).includes(n(a));}\n\nasync function fetchStats(fid){\n  try{\n    const r=await $helpers.httpRequest({method:'GET',url:'https://v3.football.api-sports.io/fixtures/statistics?fixture='+fid,headers:{'x-apisports-key':AF_KEY},timeout:6000});\n    return{fid,data:Array.isArray(r.response)?r.response:[]};\n  }catch(e){return{fid,data:[]};}\n}\n\nconst allStatsArr=await Promise.all(allIds.map(id=>fetchStats(id)));\nconst statsMap={};\nfor(const s of allStatsArr)statsMap[s.fid]=s.data;\n\nfunction getStat(stats,type){const st=(stats||[]).find(s=>s.type===type);const v=st?.value;return(v!=null&&v!=='')?Number(v)||0:null;}\n\n// === TEAM STATS (corners, shots, cards) ===\nfunction calcTeamStats(tn,form){\n  const corners=[],shots=[],shotsOT=[],yellows=[],reds=[],fouls=[];\n  for(const f of form){\n    if(!f.fid||!statsMap[f.fid])continue;\n    const td=statsMap[f.fid].find(s=>nm(s.team?.name,tn));\n    if(!td)continue;\n    const st=td.statistics||[];\n    const c=getStat(st,'Corner Kicks'),sh=getStat(st,'Total Shots'),sot=getStat(st,'Shots on Goal');\n    const y=getStat(st,'Yellow Cards'),r=getStat(st,'Red Cards'),fo=getStat(st,'Fouls');\n    if(c!==null)corners.push(c);if(sh!==null)shots.push(sh);if(sot!==null)shotsOT.push(sot);\n    if(y!==null)yellows.push(y);if(r!==null)reds.push(r);if(fo!==null)fouls.push(fo);\n  }\n  const avg=arr=>arr.length?+(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1):null;\n  return{cornersAvg:avg(corners),shotsAvg:avg(shots),shotsOTAvg:avg(shotsOT),yellowsAvg:avg(yellows),redsAvg:avg(reds),foulsAvg:avg(fouls),n:form.length};\n}\n\n// === GOALKEEPER STATS + gkFactor ===\n// gkFactor < 1.0 = portero sobresaliente (reduce goleo rival)\n// gkFactor > 1.0 = portero bajo rendimiento (facilita goleo rival)\n// WC avg save% ≈ 0.70\nfunction calcGkStats(tn,form){\n  const saves=[],goalsConc=[],shotsConcArr=[];\n  for(const f of form){\n    if(!f.fid||!statsMap[f.fid])continue;\n    const myData=statsMap[f.fid].find(s=>nm(s.team?.name,tn));\n    const oppData=statsMap[f.fid].find(s=>!nm(s.team?.name,tn));\n    if(!myData)continue;\n    const mySt=myData.statistics||[];\n    const oppSt=oppData?.statistics||[];\n    const gkSaves=getStat(mySt,'Goalkeeper Saves');\n    const oppSOT=getStat(oppSt,'Shots on Goal');   // tiros rival al arco = trabajo del portero\n    const oppGoals=getStat(oppSt,'Goals');           // goles recibidos\n    if(gkSaves!==null)saves.push(gkSaves);\n    if(oppSOT!==null)shotsConcArr.push(oppSOT);\n    if(oppGoals!==null)goalsConc.push(oppGoals);\n  }\n\n  if(!saves.length)return{gkFactor:1.0,savePercent:null,avgSaves:null,avgGoalsConc:null,partidosMuestra:0};\n\n  // Ponderar partido mas reciente x2\n  const w=saves.map((_,i)=>i===0?2:1);\n  const wSaves=saves.reduce((s,v,i)=>s+v*w[i],0);\n  const wSOT=shotsConcArr.reduce((s,v,i)=>s+v*w[i],0);\n  const wTotal=w.reduce((a,b)=>a+b,0);\n\n  const savePercent=wSOT>0?(wSaves/wSOT):null;\n  const avgSaves=+(saves.reduce((a,b)=>a+b,0)/saves.length).toFixed(1);\n  const avgGoalsConc=goalsConc.length?+(goalsConc.reduce((a,b)=>a+b,0)/goalsConc.length).toFixed(2):null;\n\n  // WC baseline: 70% save%. Cada pp extra reduce gkFactor en 0.5pp\n  // Vozinha vs España: ~7 saves de 7 SOT = 100% → gkFactor = max(0.80, 1.0-(1.0-0.70)*0.5) = 0.85\n  // Portero normal 70% → gkFactor = 1.0\n  // Portero malo 40% → gkFactor = min(1.08, 1.0+(0.70-0.40)*0.4) = 1.08\n  let gkFactor=1.0;\n  if(savePercent!==null){\n    const delta=savePercent-0.70;\n    gkFactor=delta>=0\n      ?Math.max(0.80,1.0-delta*0.50)   // buen portero: reduce goles rival\n      :Math.min(1.08,1.0-delta*0.40);  // mal portero: aumenta goles rival\n    gkFactor=+gkFactor.toFixed(3);\n  }\n\n  // Nivel legible\n  const nivel=savePercent===null?'sin datos'\n    :savePercent>=0.90?'EXCEPCIONAL (>90%)'\n    :savePercent>=0.80?'Muy bueno (80-90%)'\n    :savePercent>=0.70?'Normal (70-80%)'\n    :savePercent>=0.55?'Bajo (55-70%)'\n    :'Deficiente (<55%)';\n\n  return{gkFactor,savePercent:savePercent!==null?+savePercent.toFixed(3):null,avgSaves,avgGoalsConc,nivel,partidosMuestra:saves.length};\n}\n\nconst afStats={[t1]:calcTeamStats(t1,item.afForm?.f1||[]),[t2]:calcTeamStats(t2,item.afForm?.f2||[])};\nconst gkStats={\n  [t1]:calcGkStats(t1,item.afForm?.f1||[]),\n  [t2]:calcGkStats(t2,item.afForm?.f2||[])\n};\n\nreturn[{json:{...item,afStats,gkStats}}];"
+      },
+      "id": "00d1a223-aee7-4189-b96f-0ab91d488b8d",
+      "name": "AF Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        768
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ($json.callbackData || '').startsWith('mk') || ($json.text || '').startsWith('/mercados') }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "891f586a-b1fa-4b7a-ae66-db72576cce8f",
+      "name": "Router Mercados",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        608,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.type }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "command"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "47c40a75-ffb6-4405-bd05-7bff69753c64",
+      "name": "Tipo Mercado IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        864,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "20d89f4a-a17f-48dc-9363-23be3c2104cc",
+      "name": "Fetch Partidos Mercados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first()?.json;\nconst matches = raw?.matches || [];\nconst chatId = $('Extraer Contexto').first()?.json?.chatId || '';\nconst today = new Date().toISOString().split('T')[0];\n\nconst todayMatches = matches.filter(m => {\n  const d = (m.date || '').substring(0, 10);\n  return d === today && !m.score?.ft;\n}).map(m => ({ home: m.team1 || 'TBD', away: m.team2 || 'TBD', date: (m.date||'').substring(0,10), time: m.time || '' }));\n\nif (!todayMatches.length) {\n  return [{ json: { chatId, noMatches: true, menuText: 'No hay partidos del Mundial disponibles hoy.', reply_markup: null } }];\n}\n\nfunction trunc(s, n) { return (s || '').replace(/[^a-zA-Z]/g, '_').substring(0, n); }\n\nconst rows = todayMatches.map(m => {\n  const t1 = trunc(m.home, 10);\n  const t2 = trunc(m.away, 10);\n  const cb = 'mks:' + t1 + '|' + t2 + '|' + m.date;\n  return [{ text: m.home + ' vs ' + m.away + (m.time ? ' ' + m.time : ''), callback_data: cb }];\n});\n\nreturn [{ json: { chatId, menuText: 'Mercados WC 2026 - Selecciona partido:', reply_markup: { inline_keyboard: rows } } }];"
+      },
+      "id": "40e5859b-1b3f-41a1-bf4f-fbb2883df016",
+      "name": "Construir Menu Mercados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ($json.callbackData || '').startsWith('mks:') }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "52b8ee2a-565d-4205-af4a-5c46ff04351e",
+      "name": "Router Mks Mkm",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Extraer Contexto').first()?.json || {};\nconst chatId = ctx.chatId || '';\nconst cb = ctx.callbackData || '';\nconst parts = cb.replace('mks:', '').split('|');\nconst team1Raw = parts[0] || '';\nconst team2Raw = parts[1] || '';\nconst date = parts[2] || '';\nconst t1d = team1Raw.replace(/_/g, ' ');\nconst t2d = team2Raw.replace(/_/g, ' ');\n\nconst markets = [\n  ['Resultado 1X2', '1x2'],\n  ['Doble Oportunidad', 'dc'],\n  ['Sin Empate (DNB)', 'dnb'],\n  ['Mas/Menos 2.5 Goles', 'ou25'],\n  ['Mas/Menos 3.5 Goles', 'ou35'],\n  ['Ambos Anotan (BTTS)', 'btts'],\n  ['Primer Gol (Equipo)', 'fg'],\n  ['Goles por Equipo', 'tt'],\n  ['Marcador Exacto', 'ex'],\n  ['1er Tiempo 1X2', 'h1'],\n  ['Mitad/Final (HT-FT)', 'mf'],\n  ['Handicap (-1/+1)', 'hcp'],\n  ['Corners Total', 'cor'],\n  ['Combo Sugerido', 'combo']\n];\n\nfunction mkCb(mkt) { return 'mkm:' + team1Raw + '|' + team2Raw + '|' + date + '|' + mkt; }\n\nconst rows = [];\nfor (let i = 0; i < markets.length; i += 2) {\n  const row = [{ text: markets[i][0], callback_data: mkCb(markets[i][1]) }];\n  if (i+1 < markets.length) row.push({ text: markets[i+1][0], callback_data: mkCb(markets[i+1][1]) });\n  rows.push(row);\n}\n\nreturn [{ json: {\n  chatId, team1Raw, team2Raw, date, t1d, t2d,\n  menuText: t1d + ' vs ' + t2d + ' - Elige el mercado:',\n  reply_markup: { inline_keyboard: rows }\n}}];"
+      },
+      "id": "0b2dcf94-bd05-469f-b5f5-c4fb6a12fa27",
+      "name": "Parse Match Selection",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Extraer Contexto').first()?.json || {};\nconst chatId = ctx.chatId || '';\nconst cb = ctx.callbackData || '';\nconst raw = cb.replace('mkm:', '');\nconst parts = raw.split('|');\nconst team1Raw = parts[0] || '';\nconst team2Raw = parts[1] || '';\nconst date = parts[2] || '';\nconst marketCode = parts[3] || '1x2';\nconst t1d = team1Raw.replace(/_/g, ' ');\nconst t2d = team2Raw.replace(/_/g, ' ');\nconst NAMES = { '1x2': 'Resultado 1X2', 'dc': 'Doble Oportunidad', 'dnb': 'Sin Empate', 'ou25': 'Mas/Menos 2.5', 'ou35': 'Mas/Menos 3.5', 'btts': 'Ambos Anotan', 'fg': 'Primer Gol', 'tt': 'Goles por Equipo', 'ex': 'Marcador Exacto', 'h1': '1er Tiempo 1X2', 'mf': 'Mitad/Final', 'hcp': 'Handicap', 'cor': 'Corners Total', 'combo': 'Combo Sugerido' };\nreturn [{ json: { chatId, team1Raw, team2Raw, date, marketCode, t1d, t2d, marketName: NAMES[marketCode] || marketCode } }];"
+      },
+      "id": "61c458bf-fc97-4f14-9c30-8db006db1bfe",
+      "name": "Parse Market Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds/",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "apiKey",
+              "value": "66ce87d7f976181db2383c4b59716840"
+            },
+            {
+              "name": "regions",
+              "value": "eu"
+            },
+            {
+              "name": "markets",
+              "value": "h2h,totals"
+            },
+            {
+              "name": "oddsFormat",
+              "value": "decimal"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "676ade59-9d08-4594-bd94-f991f2f6c39b",
+      "name": "Odds API Mercados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1648,
+        688
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const oddsRaw = $input.first()?.json;\nconst parsed = $('Parse Market Request').first()?.json || {};\nconst { chatId, team1Raw, team2Raw, marketCode, t1d, t2d, marketName } = parsed;\n\nfunction poisson(lambda, k) {\n  if (lambda <= 0 || k < 0) return k === 0 ? 1 : 0;\n  let r = Math.exp(-lambda);\n  for (let i = 1; i <= k; i++) r *= lambda / i;\n  return Math.max(0, Math.min(1, r));\n}\n\nconst ELO = {\n  'argentina':2095,'france':2078,'brazil':2068,'england':2055,'spain':2042,'germany':2022,\n  'portugal':2008,'netherlands':1993,'belgium':1982,'italy':1975,'croatia':1962,'morocco':1945,\n  'usa':1942,'united states':1942,'switzerland':1938,'mexico':1932,'denmark':1928,'uruguay':1925,\n  'colombia':1918,'japan':1905,'senegal':1895,'scotland':1848,'chile':1870,'australia':1882,\n  'south korea':1872,'republic of korea':1872,'canada':1858,'ecuador':1848,'peru':1842,\n  'austria':1820,'turkey':1808,'nigeria':1795,'cameroon':1798,'ghana':1798,'costa rica':1790,\n  'serbia':1800,'ukraine':1792,'wales':1782,'tunisia':1782,'algeria':1785,'iran':1775,\n  'saudi arabia':1752,'qatar':1720,'new zealand':1700,'poland':1835,'paraguay':1800,\n  'venezuela':1780,'panama':1780,'honduras':1770,'bolivia':1760,'egypt':1780,\n  'dr congo':1770,'south africa':1762,'slovakia':1762,'slovenia':1758,'romania':1780,\n  'czech republic':1780,'hungary':1790,'ivory coast':1815,\"cote d'ivoire\":1815,\n  'el salvador':1755,'jamaica':1760,'iraq':1760,'new caledonia':1660,\n  'cabo verde':1835,'cape verde':1835,'mali':1780,'guinea':1760,\n  'cameroon':1798,'tanzania':1720,'kenya':1710,'zambia':1715,'mozambique':1690\n};\nfunction getElo(raw) {\n  const k = (raw || '').toLowerCase().replace(/[^a-z ]/g,' ').trim();\n  if (ELO[k]) return ELO[k];\n  for (const [key, val] of Object.entries(ELO)) {\n    if (k === key || k.includes(key) || key.includes(k)) return val;\n  }\n  return 1800;\n}\n\nconst elo1 = getElo(team1Raw), elo2 = getElo(team2Raw);\nconst diff = elo1 - elo2;\nconst WC_AVG = 1.28;\nconst eDiff = diff / 800;\nlet xg1 = WC_AVG * (1 + eDiff * 0.15);\nlet xg2 = WC_AVG * (1 - eDiff * 0.15);\nconst eloDiffAbs = Math.abs(diff);\nif (eloDiffAbs > 250) xg2 *= 0.85;\nelse if (eloDiffAbs > 150) xg2 *= 0.90;\nxg1 = Math.max(0.75, Math.min(4.0, xg1));\nxg2 = Math.max(0.50, Math.min(4.0, xg2));\n\nlet p1 = 0, px = 0, p2 = 0;\nfor (let h = 0; h <= 8; h++) for (let a = 0; a <= 8; a++) {\n  const p = poisson(xg1, h) * poisson(xg2, a);\n  if (h > a) p1 += p; else if (h === a) px += p; else p2 += p;\n}\nconst tot = p1 + px + p2; p1 /= tot; px /= tot; p2 /= tot;\n\nconst pBtts = (1 - Math.exp(-xg1)) * (1 - Math.exp(-xg2));\nlet pOv25 = 0, pOv35 = 0;\nfor (let h = 0; h <= 8; h++) for (let a = 0; a <= 8; a++) {\n  const p = poisson(xg1, h) * poisson(xg2, a);\n  if (h + a > 2) pOv25 += p;\n  if (h + a > 3) pOv35 += p;\n}\n\nconst scores = [];\nfor (let h = 0; h <= 4; h++) for (let a = 0; a <= 4; a++)\n  scores.push({ s: h + '-' + a, p: poisson(xg1, h) * poisson(xg2, a) });\nscores.sort((a, b) => b.p - a.p);\nconst top5 = scores.slice(0, 5);\n\nconst p1dnb = p1 / (p1 + p2), p2dnb = p2 / (p1 + p2);\nconst p1x = p1 + px, p12 = p1 + p2, px2 = px + p2;\nconst pFg1 = xg1 / (xg1 + xg2);\nconst pT1ov = 1 - Math.exp(-xg1);\nconst pT2ov = 1 - Math.exp(-xg2);\nconst xgTot = xg1 + xg2;\nconst cornerEst = 9.5 + (xgTot - 2.56) * 1.8;\nconst pCor95 = Math.max(0.2, Math.min(0.8, 0.5 + (cornerEst - 9.5) * 0.06));\n\nconst fav = elo1 > elo2 ? t1d : t2d;\nconst favRaw = elo1 > elo2 ? team1Raw : team2Raw;\nlet pHcpFav = 0;\nfor (let h = 0; h <= 8; h++) for (let a = 0; a <= 8; a++) {\n  const margin = elo1 > elo2 ? (h - a) : (a - h);\n  if (margin >= 2) pHcpFav += poisson(xg1, h) * poisson(xg2, a);\n}\npHcpFav = Math.min(0.85, pHcpFav);\n\nfunction nameMatch(a, b) {\n  if (!a || !b) return false;\n  const n = s => s.toLowerCase().replace(/[^a-z]/g, '');\n  const na = n(a), nb = n(b);\n  return na.includes(nb.substring(0, 5)) || nb.includes(na.substring(0, 5));\n}\nfunction impliedProb(o) { return o > 1 ? 1 / o : 0; }\nfunction pct(p) { return (p * 100).toFixed(1) + '%'; }\n\nlet oddsEvent = null;\nif (Array.isArray(oddsRaw)) {\n  oddsEvent = oddsRaw.find(ev => nameMatch(ev.home_team, team1Raw) || nameMatch(ev.away_team, team1Raw));\n}\nfunction getOutcomes(key) {\n  if (!oddsEvent) return null;\n  for (const bm of (oddsEvent.bookmakers || []))\n    for (const mkt of (bm.markets || []))\n      if (mkt.key === key) return mkt.outcomes;\n  return null;\n}\nfunction adjFromOdds(outcomes, name, fallback) {\n  if (!outcomes) return fallback;\n  const o = outcomes.find(x => nameMatch(x.name, name));\n  return o ? impliedProb(o.price) : fallback;\n}\n\nconst h2h = getOutcomes('h2h');\nconst totals = getOutcomes('totals');\nconst bttsOut = getOutcomes('btts');\nconst dnbOut = getOutcomes('draw_no_bet');\nconst spreads = getOutcomes('spreads');\n\nlet p1A = p1, pxA = px, p2A = p2;\nif (h2h) {\n  const ip1 = adjFromOdds(h2h, team1Raw, 0);\n  const ipX = adjFromOdds(h2h, 'Draw', 0);\n  const ip2 = adjFromOdds(h2h, team2Raw, 0);\n  if (ip1 + ipX + ip2 > 0) { const t = ip1+ipX+ip2; p1A=ip1/t; pxA=ipX/t; p2A=ip2/t; }\n}\n\nconst header = t1d + ' vs ' + t2d + ' | ' + marketName + '\\n';\nconst src = oddsEvent ? '(cuotas EU + modelo)' : '(modelo Poisson+Elo WC2026)';\nlet msg = '';\n\nswitch (marketCode) {\n  case '1x2':\n    msg = header + '---\\n' + t1d + ' gana: ' + pct(p1A) + '\\nEmpate: ' + pct(pxA) + '\\n' + t2d + ' gana: ' + pct(p2A) + '\\n---\\nPronostico: ' + (p1A>=pxA&&p1A>=p2A?t1d:(p2A>=p1A&&p2A>=pxA?t2d:'Empate')) + ' ' + src;\n    break;\n  case 'dc':\n    msg = header + '---\\n1X (' + t1d + '/Empate): ' + pct(p1x) + '\\n12 (Cualquier gana): ' + pct(p12) + '\\nX2 (' + t2d + '/Empate): ' + pct(px2) + '\\n---\\nPronostico: ' + (p1x>=px2?'1X - '+t1d+' o Empate':'X2 - '+t2d+' o Empate') + ' ' + src;\n    break;\n  case 'dnb': {\n    const dp1 = adjFromOdds(dnbOut, team1Raw, p1dnb);\n    const dp2 = adjFromOdds(dnbOut, team2Raw, p2dnb);\n    msg = header + '---\\n' + t1d + ' (devuelve si empate): ' + pct(dp1) + '\\n' + t2d + ' (devuelve si empate): ' + pct(dp2) + '\\n---\\nPronostico: ' + (dp1>dp2?t1d:t2d) + ' DNB ' + src;\n    break;\n  }\n  case 'ou25': {\n    const ov = totals&&totals.find(o=>o.name==='Over'&&Math.abs((o.point||2.5)-2.5)<0.1);\n    const pOvF = ov ? impliedProb(ov.price) : pOv25;\n    msg = header + '---\\nMas de 2.5 goles: ' + pct(pOvF) + (ov?' (cuota: '+ov.price+')':'') + '\\nMenos de 2.5 goles: ' + pct(1-pOvF) + '\\nxG: ' + xg1.toFixed(2) + ' + ' + xg2.toFixed(2) + ' = ' + xgTot.toFixed(2) + '\\n---\\nPronostico: ' + (pOvF>0.55?'Mas de 2.5 goles':'Menos de 2.5 goles') + ' ' + src;\n    break;\n  }\n  case 'ou35': {\n    const ov35 = totals&&totals.find(o=>o.name==='Over'&&Math.abs((o.point||3.5)-3.5)<0.1);\n    const pOv35F = ov35 ? impliedProb(ov35.price) : pOv35;\n    msg = header + '---\\nMas de 3.5 goles: ' + pct(pOv35F) + '\\nMenos de 3.5 goles: ' + pct(1-pOv35F) + '\\nxG: ' + xg1.toFixed(2) + '+' + xg2.toFixed(2) + '=' + xgTot.toFixed(2) + '\\n---\\nPronostico: ' + (pOv35F>0.5?'Mas de 3.5':'Menos de 3.5') + ' ' + src;\n    break;\n  }\n  case 'btts': {\n    const byY = bttsOut&&bttsOut.find(o=>o.name==='Yes');\n    const pBF = byY ? impliedProb(byY.price) : pBtts;\n    msg = header + '---\\nAmbos anotan Si: ' + pct(pBF) + (byY?' (cuota: '+byY.price+')':'') + '\\nAmbos anotan No: ' + pct(1-pBF) + '\\nxG: ' + t1d+' '+xg1.toFixed(2)+' | '+t2d+' '+xg2.toFixed(2) + '\\n---\\nPronostico: ' + (pBF>0.5?'Si anotan ambos':'No anotan ambos') + ' ' + src;\n    break;\n  }\n  case 'fg':\n    msg = header + '---\\nPrimer gol ' + t1d + ': ' + pct(pFg1) + '\\nPrimer gol ' + t2d + ': ' + pct(1-pFg1) + '\\nxG: ' + xg1.toFixed(2) + ' vs ' + xg2.toFixed(2) + '\\n---\\nPronostico: ' + (pFg1>0.5?t1d:t2d) + ' anota primero (modelo xG)';\n    break;\n  case 'tt':\n    msg = header + '---\\n' + t1d + ' > 0.5 goles: ' + pct(pT1ov) + '\\n' + t2d + ' > 0.5 goles: ' + pct(pT2ov) + '\\nxG: ' + t1d+' '+xg1.toFixed(2)+' | '+t2d+' '+xg2.toFixed(2) + '\\n---\\nPronostico: ' + (pT1ov>0.5?t1d+' anota':t1d+' podria no anotar') + ' | ' + (pT2ov>0.5?t2d+' anota':t2d+' podria no anotar');\n    break;\n  case 'ex':\n    msg = header + '---\\nTop 5 marcadores probables:\\n' + top5.map((s,i)=>(i+1)+'. '+t1d+' '+s.s.split('-')[0]+'-'+s.s.split('-')[1]+' '+t2d+': '+pct(s.p)).join('\\n') + '\\n---\\nPronostico: '+top5[0].s.split('-')[0]+'-'+top5[0].s.split('-')[1]+' (Poisson xG '+xg1.toFixed(1)+'-'+xg2.toFixed(1)+')';\n    break;\n  case 'h1': {\n    const xg1h = xg1*0.45, xg2h = xg2*0.45;\n    let ph1=0, phx=0, ph2=0;\n    for (let h=0;h<=4;h++) for (let a=0;a<=4;a++) {\n      const p = poisson(xg1h,h)*poisson(xg2h,a);\n      if (h>a) ph1+=p; else if (h===a) phx+=p; else ph2+=p;\n    }\n    const th=ph1+phx+ph2;\n    msg = header+'---\\n1er tiempo '+t1d+': '+pct(ph1/th)+'\\n1er tiempo Empate: '+pct(phx/th)+'\\n1er tiempo '+t2d+': '+pct(ph2/th)+'\\nxG HT est: '+xg1h.toFixed(2)+'-'+xg2h.toFixed(2)+'\\n---\\nPronostico: '+(phx>ph1&&phx>ph2?'Empate al descanso':(ph1>ph2?t1d+' gana 1er tiempo':t2d+' gana 1er tiempo'));\n    break;\n  }\n  case 'mf': {\n    const xg1h=xg1*0.45, xg2h=xg2*0.45;\n    let ph1=0,phx=0,ph2=0;\n    for (let h=0;h<=4;h++) for (let a=0;a<=4;a++) {\n      const p=poisson(xg1h,h)*poisson(xg2h,a);\n      if(h>a) ph1+=p; else if(h===a) phx+=p; else ph2+=p;\n    }\n    const th=ph1+phx+ph2; ph1/=th; phx/=th; ph2/=th;\n    const combos = [\n      {n:'1/1', p:ph1*p1/(p1+px*0.3)},{n:'1/X', p:ph1*px*0.3},\n      {n:'X/1', p:phx*p1*0.5},{n:'X/X', p:phx*px*0.7},\n      {n:'X/2', p:phx*p2*0.5},{n:'2/2', p:ph2*p2/(p2+px*0.3)},\n      {n:'2/X', p:ph2*px*0.3},{n:'1/2', p:ph1*p2*0.05},{n:'2/1', p:ph2*p1*0.05},\n    ].sort((a,b)=>b.p-a.p).slice(0,6);\n    const tCombos = combos.reduce((s,c)=>s+c.p,0);\n    msg = header+'---\\n'+combos.map(c=>c.n+': '+pct(c.p/tCombos)).join('\\n')+'\\n---\\nPronostico: '+combos[0].n+' (modelo HT+FT combinado)';\n    break;\n  }\n  case 'hcp': {\n    const spr = spreads&&spreads.find(o=>nameMatch(o.name,favRaw));\n    const pHF = spr ? impliedProb(spr.price) : pHcpFav;\n    const und = elo1>elo2?t2d:t1d;\n    msg = header+'---\\nFavorito: '+fav+' (-1 gol)\\n'+fav+' cubre -1: '+pct(pHF)+(spr?' (cuota: '+spr.price+')':'')+' \\n'+und+' cubre +1: '+pct(1-pHF)+'\\n---\\nPronostico: '+(pHF>0.5?fav+' -1 AH':und+' +1 AH')+' '+src;\n    break;\n  }\n  case 'cor':\n    msg = header+'---\\nCorners estimados: '+cornerEst.toFixed(1)+'\\nMas de 9.5 corners: '+pct(pCor95)+'\\nMenos de 9.5 corners: '+pct(1-pCor95)+'\\nIntensidad xG: '+xgTot.toFixed(2)+'\\n---\\nPronostico: '+(pCor95>0.5?'Mas de 9.5 corners':'Menos de 9.5 corners')+' (modelo estadistico WC)';\n    break;\n\n  case 'combo': {\n    let pOv15c=0, pUn45c=0;\n    for (let h=0;h<=8;h++) for (let a=0;a<=8;a++) {\n      const p=poisson(xg1,h)*poisson(xg2,a);\n      if(h+a>1) pOv15c+=p;\n      if(h+a<5) pUn45c+=p;\n    }\n    const pUn35c=1-pOv35;\n    const isFav1=p1A>=p2A;\n    const favWinProb=Math.max(p1A,p2A);\n    const favWinName=isFav1?t1d+' gana':t2d+' gana';\n    const dnbFavProb=Math.max(p1dnb,p2dnb);\n    const dnbFavName=p1dnb>p2dnb?t1d+' DNB':t2d+' DNB';\n\n    // BK=0.87 → margen ~13%, mas realista para mercados exoticos\n    const BK=0.87;\n    const eOdds=p=>Math.max(1.07,(1/Math.max(0.02,p))*BK);\n\n    // Obtener mejor cuota real del Odds API para picks con mercado conocido\n    function bestOddsForPick(code, prob) {\n      if(code==='favwin'&&h2h){const tName=isFav1?team1Raw:team2Raw;const o=h2h.find(x=>nameMatch(x.name,tName));if(o&&o.price>1.07)return o.price;}\n      if(code==='ov25'&&totals){const o=totals.find(x=>x.name==='Over'&&Math.abs((x.point||2.5)-2.5)<0.1);if(o&&o.price>1.07)return o.price;}\n      if(code==='ov15'&&totals){const o=totals.find(x=>x.name==='Over'&&Math.abs((x.point||1.5)-1.5)<0.1);if(o&&o.price>1.07)return o.price;}\n      if(code==='dc12'){const dcMkt=getOutcomes('doubleChance');if(dcMkt){const o=dcMkt.find(x=>x.name==='12');if(o&&o.price>1.07)return o.price;}}\n      return eOdds(prob);\n    }\n\n    const pool=[\n      {code:'ov15',name:'Mas de 1.5 goles',prob:pOv15c,tier:0,group:'over'},\n      {code:'un45',name:'Menos de 4.5 goles',prob:pUn45c,tier:0,group:'under'},\n      {code:'dc1x',name:'DC '+t1d+'/Emp',prob:p1x,tier:0,group:'dc'},\n      {code:'dcx2',name:'DC '+t2d+'/Emp',prob:px2,tier:0,group:'dc'},\n      {code:'dc12',name:'DC Sin Empate',prob:p12,tier:0,group:'dc'},\n      {code:'ts1',name:t1d+' anota',prob:pT1ov,tier:0,group:'ts1'},\n      {code:'ts2',name:t2d+' anota',prob:pT2ov,tier:0,group:'ts2'},\n      {code:'ov25',name:'Mas de 2.5 goles',prob:pOv25,tier:1,group:'over'},\n      {code:'un35',name:'Menos de 3.5 goles',prob:pUn35c,tier:1,group:'under'},\n      {code:'btts',name:'Ambos anotan Si',prob:pBtts,tier:1,group:'btts'},\n      {code:'nobtts',name:'Ambos anotan No',prob:1-pBtts,tier:1,group:'btts'},\n      {code:'favwin',name:favWinName,prob:favWinProb,tier:1,group:'win'},\n      {code:'dnb',name:dnbFavName,prob:dnbFavProb,tier:1,group:'dnb'},\n    ].map(c=>({...c,odds:bestOddsForPick(c.code,c.prob)})).filter(c=>c.prob>=0.55&&c.odds>=1.08).sort((a,b)=>a.tier!==b.tier?a.tier-b.tier:b.prob-a.prob);\n\n    const CRR={'favwin+ts1':0.55,'favwin+ts2':-0.30,'favwin+btts':-0.15,'favwin+nobtts':0.20,'favwin+ov15':0.25,'favwin+ov25':0.15,'favwin+dc12':0.65,'favwin+dnb':0.55,'ov15+ov25':0.80,'ov15+btts':0.40,'ov15+ts1':0.35,'ov15+ts2':0.30,'ov15+un45':0.50,'ov25+btts':0.50,'ov25+ts1':0.25,'ov25+ts2':0.25,'un35+un45':0.70,'btts+ts1':0.65,'btts+ts2':0.65,'ts1+ts2':0.10,'dc12+dnb':0.55,'dnb+ts1':0.45,'dnb+ov15':0.20};\n    function crr(c1,c2){return CRR[[c1,c2].sort().join('+')]||0;}\n    function adjJoint(picks){if(!picks.length)return 1;let joint=picks[0].prob;for(let i=1;i<picks.length;i++){const avgC=picks.slice(0,i).reduce((s,p)=>s+crr(p.code,picks[i].code),0)/i;joint*=Math.max(0.02,Math.min(0.99,picks[i].prob*(1+avgC*0.35)));}return joint;}\n    function conflicts(combo,cand){\n      if(combo.some(c=>c.group===cand.group))return true;\n      if((cand.code==='ov25'&&combo.some(c=>c.code==='un35'))||(cand.code==='un35'&&combo.some(c=>c.code==='ov25')))return true;\n      return false;\n    }\n\n    // Armar combo inicial (max 4 picks o hasta x2)\n    let combo=[],comboOdds=1.0;\n    for(const cand of pool){\n      if(combo.length>=4||comboOdds>=2.0)break;\n      if(conflicts(combo,cand))continue;\n      combo.push(cand);\n      comboOdds*=cand.odds;\n    }\n\n    // === NUEVO: Si no llega a x2.0, agregar una pata mas del pool ===\n    let piernExtra=null;\n    if(comboOdds<2.0&&combo.length<5){\n      const target=2.0/comboOdds;\n      const remaining=pool.filter(c=>!combo.includes(c)&&!conflicts(combo,c)&&c.prob>=0.52);\n      // Ordenar: primero los que alcanzan el target, luego por probabilidad\n      remaining.sort((a,b)=>{\n        const aOk=a.odds>=target, bOk=b.odds>=target;\n        if(aOk&&!bOk)return -1;\n        if(!aOk&&bOk)return 1;\n        return b.prob-a.prob;\n      });\n      if(remaining.length>0){\n        piernExtra=remaining[0];\n        combo.push(piernExtra);\n        comboOdds*=piernExtra.odds;\n      }\n    }\n\n    // === NUEVO: Revisar cada bookmaker y ver cuales pagan x2+ con este combo ===\n    const casasX2=[];\n    if(oddsEvent&&combo.length>0){\n      for(const bk of (oddsEvent.bookmakers||[])){\n        let bkProd=1.0;\n        for(const pick of combo){\n          let bkPrice=null;\n          for(const mkt of (bk.markets||[])){\n            if(pick.code==='favwin'&&mkt.key==='h2h'){\n              const tN=isFav1?team1Raw:team2Raw;\n              const o=mkt.outcomes?.find(x=>nameMatch(x.name,tN));\n              if(o?.price>1.01)bkPrice=o.price;\n            } else if(pick.code==='ov15'&&mkt.key==='totals'){\n              const o=mkt.outcomes?.find(x=>x.name==='Over'&&Math.abs((x.point||2.5)-1.5)<0.1);\n              if(o?.price>1.01)bkPrice=o.price;\n            } else if(pick.code==='ov25'&&mkt.key==='totals'){\n              const o=mkt.outcomes?.find(x=>x.name==='Over'&&Math.abs((x.point||2.5)-2.5)<0.1);\n              if(o?.price>1.01)bkPrice=o.price;\n            } else if(pick.code==='dc12'&&mkt.key==='doubleChance'){\n              const o=mkt.outcomes?.find(x=>x.name==='12');\n              if(o?.price>1.01)bkPrice=o.price;\n            } else if((pick.code==='ts1'||pick.code==='ts2')&&mkt.key==='h2h'){\n              // ts1/ts2 no tiene mercado directo — usar odds sintetico\n              bkPrice=null;\n            }\n          }\n          bkProd*=bkPrice??pick.odds;\n        }\n        if(bkProd>=1.98){\n          casasX2.push({name:bk.title||bk.key,odds:+bkProd.toFixed(2)});\n        }\n      }\n      casasX2.sort((a,b)=>b.odds-a.odds);\n    }\n\n    const jointP=adjJoint(combo);\n    const ev=jointP*(comboOdds-1)-(1-jointP);\n    const reached=comboOdds>=2.0;\n    const modCount=combo.filter(c=>c.tier===1).length;\n    const riskLabel=modCount===0?'Bajo':modCount===1?'Bajo-Moderado':'Moderado';\n    const evStr=(ev>=0?'+':'')+(ev*100).toFixed(1)+'%';\n\n    if(!combo.length){\n      msg=header+'No hay picks con confianza suficiente hoy.';\n    } else {\n      const rows=combo.map((c,i)=>(i+1)+'. '+c.name+' ['+pct(c.prob)+'] x'+c.odds.toFixed(2)).join('\\n');\n\n      // Linea de casas que pagan x2\n      let casaLine='';\n      if(casasX2.length>0){\n        casaLine='\\n✅ Casas que pagan x2+: '+casasX2.slice(0,4).map(c=>c.name+' (x'+c.odds+')').join(' | ');\n      } else if(combo.some(c=>['ts1','ts2','cor','un45'].includes(c.code))){\n        casaLine='\\n⚠️ Incluye mercados sin cotizacion directa (estimado)';\n      } else {\n        casaLine='\\n⚠️ Verificar cuotas exactas en tu casa';\n      }\n\n      // Linea de pata extra\n      const piernLine=piernExtra?'\\n➕ Pata extra agregada para alcanzar x2':'';\n\n      msg=header+'---\\n'+rows+'\\n---\\n'\n        +'Cuota combinada: x'+comboOdds.toFixed(2)+(reached?' ✅':'')+'\\n'\n        +'Prob. ajustada: '+pct(jointP)+'\\n'\n        +'EV: '+evStr+' | Riesgo: '+riskLabel\n        +casaLine+piernLine\n        +'\\n---\\nxG: '+xg1.toFixed(2)+' - '+xg2.toFixed(2)+' '+src;\n    }\n    break;\n  }\n  default:\n    msg = header + 'Mercado no disponible.';\n}\n\nreturn [{ json: { chatId, predMsg: msg } }];"
+      },
+      "id": "30a9daf6-9239-4b26-8015-f53b960568d1",
+      "name": "Calcular Mercado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $vars.TELEGRAM_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.menuText }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "={{ $json.reply_markup ? JSON.stringify($json.reply_markup) : JSON.stringify({remove_keyboard: true}) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "11eeb68a-b4b1-44de-9a32-3b7f8a916517",
+      "name": "Enviar Menu Mercados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1648,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $vars.TELEGRAM_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.menuText }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "={{ $json.reply_markup ? JSON.stringify($json.reply_markup) : JSON.stringify({remove_keyboard: true}) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1afead3f-caf6-4f3a-a824-105cbfc165d9",
+      "name": "Enviar Tipos Mercado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1648,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $vars.TELEGRAM_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.predMsg }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b6b06e94-0128-4564-8add-1974d146d853",
+      "name": "Enviar Prediccion Mercado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2160,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.type }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "command"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "940bca6e-13c5-421a-8a22-9662729791e9",
+      "name": "Tipo Vivo IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        864,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://v3.football.api-sports.io/fixtures?live=all",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apisports-key",
+              "value": "6ff9af31322694c6131ad6f159870363"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0f33f8aa-34f1-4568-84e2-40b4f17e628c",
+      "name": "AF Live Fixtures",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const afData = $input.first()?.json || {};\nconst chatId = $('Extraer Contexto').first()?.json?.chatId || '';\nconst allFixtures = afData.response || [];\n\nconst LIVE_STATUSES = new Set(['1H','2H','HT','ET','BT','P','INT']);\n\n// 1) Try AF live data first\nconst wc = allFixtures.filter(f => f.league?.id === 1 || f.league?.name?.toLowerCase().includes('world cup'));\nconst live = (wc.length > 0 ? wc : allFixtures).filter(f => LIVE_STATUSES.has(f.fixture?.status?.short));\n\nif (live.length) {\n  const rows = live.map(f => {\n    const home = f.teams?.home?.name || '?';\n    const away = f.teams?.away?.name || '?';\n    const gh = f.goals?.home ?? 0;\n    const ga = f.goals?.away ?? 0;\n    const min = f.fixture?.status?.elapsed || 0;\n    const st = f.fixture?.status?.short || '';\n    const stLabel = {'1H':'1T','HT':'DSC','2H':'2T','ET':'PROR','P':'PEN','BT':'DSC'}[st] || st;\n    return [{ text: home+' '+gh+'-'+ga+' '+away+' ('+min+'\\' '+stLabel+')', callback_data: 'vv:'+f.fixture?.id }];\n  });\n  return [{ json: { chatId, menuText: '🔴 Partidos WC 2026 en vivo — selecciona para predicción actualizada:', reply_markup: { inline_keyboard: rows } } }];\n}\n\n// 2) Fallback: openfootball schedule\nlet fbButtons = [];\nlet fbMsg = '';\ntry {\n  const resp = await $helpers.httpRequest({\n    method: 'GET',\n    url: 'https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json'\n  });\n  const matches = resp?.matches || [];\n  const now = Date.now();\n\n  const inProgress = matches.filter(m => {\n    if (!m.date || !m.time) return false;\n    const start = new Date(m.date + 'T' + m.time + ':00Z').getTime();\n    const elapsed = (now - start) / 60000;\n    return elapsed >= 0 && elapsed <= 115;\n  });\n\n  if (inProgress.length > 0) {\n    fbButtons = inProgress.map(m => {\n      const t1 = typeof m.team1==='string'?m.team1:(m.team1?.name||'?');\n      const t2 = typeof m.team2==='string'?m.team2:(m.team2?.name||'?');\n      // Score from openfootball (may be null during live)\n      const g1 = m.score?.ft?.[0] ?? 0;\n      const g2 = m.score?.ft?.[1] ?? 0;\n      const startMs = new Date(m.date + 'T' + m.time + ':00Z').getTime();\n      const elapsedMin = Math.min(90, Math.round((now - startMs) / 60000));\n      const st = elapsedMin <= 45 ? '1H' : 'HT';\n      // vvn: = openfootball fallback (no AF fixture ID)\n      const cb = 'vvn:'+t1+'|'+t2+'|'+g1+'|'+g2+'|'+elapsedMin+'|'+st;\n      return [{ text: '📡 '+t1+' '+g1+'-'+g2+' '+t2+' ('+elapsedMin+'\\')', callback_data: cb }];\n    });\n    return [{ json: { chatId, menuText: '🔴 Partidos WC 2026 en vivo (estimado)\\n📡 Datos de schedule — selecciona para predicción:', reply_markup: { inline_keyboard: fbButtons } } }];\n  }\n\n  const upcoming = matches.filter(m => {\n    if (!m.date || !m.time) return false;\n    const start = new Date(m.date + 'T' + m.time + ':00Z').getTime();\n    return start > now;\n  }).sort((a, b) => new Date(a.date+'T'+a.time+':00Z') - new Date(b.date+'T'+b.time+':00Z'));\n\n  if (upcoming.length > 0) {\n    const nx = upcoming[0];\n    const t1 = typeof nx.team1==='string'?nx.team1:(nx.team1?.name||'?');\n    const t2 = typeof nx.team2==='string'?nx.team2:(nx.team2?.name||'?');\n    const start = new Date(nx.date+'T'+nx.time+':00Z');\n    const minsLeft = Math.round((start.getTime()-now)/60000);\n    fbMsg = '\\n\\n🕐 Próximo: '+t1+' vs '+t2+' — en '+minsLeft+' min';\n    if (upcoming.length > 1) fbMsg += '\\n(+' + (upcoming.length-1) + ' partidos más hoy)';\n  }\n} catch(e) { fbMsg = ''; }\n\nconst msg = '⚽ No hay partidos WC 2026 detectados en vivo ahora.' + fbMsg + '\\n\\nUsa /partidos para el calendario o /mercados para predicciones.';\nreturn [{ json: { chatId, noLive: true, menuText: msg, reply_markup: null } }];"
+      },
+      "id": "b00a1897-31db-46a2-8d40-c7cbedafef37",
+      "name": "Construir Selector Vivo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $vars.TELEGRAM_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.menuText }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "={{ $json.reply_markup ? JSON.stringify($json.reply_markup) : JSON.stringify({remove_keyboard: true}) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "17cc97a8-e2fa-47bb-93e6-b6a97b97f58e",
+      "name": "Enviar Selector Vivo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1648,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://v3.football.api-sports.io/fixtures?id=' + ($('Extraer Contexto').first()?.json?.callbackData || '').replace('vv:', '') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apisports-key",
+              "value": "6ff9af31322694c6131ad6f159870363"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "eacf976b-1ffc-47b8-8e9e-c80764ee2a7e",
+      "name": "AF Live Detalle",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Extraer Contexto').first()?.json?.chatId || '';\nconst fx = $input.first()?.json?.response?.[0] || {};\n\nif (!fx.fixture) {\n  return [{ json: { chatId, predMsg: 'No se pudo obtener datos en vivo. Intenta de nuevo en un momento.' } }];\n}\n\nconst SB_URL = 'https://jwpdukjouvaygefeanfs.supabase.co';\nconst SB_KEY = $vars.SUPABASE_SERVICE_KEY;\nconst SB_H = { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY };\n\n// ── 1. Cargar factores de calibración aprendidos ──────────────────────────\nlet cf = { sin_goles: 1.0, btts: 1.0, mas25: 1.0, '1x2': 1.0 };\ntry {\n  const res = await $helpers.httpRequest({\n    method: 'GET',\n    url: SB_URL + '/rest/v1/calibracion_factores?select=mercado,factor',\n    headers: SB_H\n  });\n  if (Array.isArray(res)) res.forEach(r => { if (r.mercado) cf[r.mercado] = r.factor || 1.0; });\n} catch(e) {}\n\n// ── 2. Cargar jugadores estrella ──────────────────────────────────────────\nlet estrellas = [];\ntry {\n  const res = await $helpers.httpRequest({\n    method: 'GET',\n    url: SB_URL + '/rest/v1/jugadores_estrella?select=nombre,equipo,factor_gol&activo=eq.true',\n    headers: SB_H\n  });\n  if (Array.isArray(res)) estrellas = res;\n} catch(e) {\n  estrellas = [\n    {nombre:'Messi',equipo:'Argentina',factor_gol:2.2},\n    {nombre:'Mbappe',equipo:'France',factor_gol:2.0},\n    {nombre:'Haaland',equipo:'Norway',factor_gol:2.1},\n    {nombre:'Ronaldo',equipo:'Portugal',factor_gol:1.8},\n    {nombre:'Vinicius',equipo:'Brazil',factor_gol:1.7}\n  ];\n}\n\n// ── 3. Datos del partido ──────────────────────────────────────────────────\nconst home = fx.teams?.home?.name || 'Local';\nconst away = fx.teams?.away?.name || 'Visitante';\nconst gh = fx.goals?.home ?? 0;\nconst ga = fx.goals?.away ?? 0;\nconst elapsed = fx.fixture?.status?.elapsed || 0;\nconst statusShort = fx.fixture?.status?.short || '2H';\nconst isET = ['ET', 'P'].includes(statusShort);\nconst totalMin = isET ? 120 : 90;\nconst minutesLeft = Math.max(1, totalMin - elapsed);\nconst timeRatio = minutesLeft / 90;\n\n// ── 4. ELO base ───────────────────────────────────────────────────────────\nconst ELO = {\n  'argentina':2095,'france':1820,'brazil':1850,'england':1780,'spain':1790,\n  'germany':1760,'netherlands':1740,'portugal':1750,'belgium':1710,'croatia':1670,\n  'uruguay':1680,'denmark':1660,'switzerland':1650,'mexico':1630,'usa':1620,\n  'united states':1620,'senegal':1620,'morocco':1640,'japan':1610,'colombia':1610,\n  'south korea':1590,'sweden':1620,'ukraine':1590,'austria':1820,'poland':1600,\n  'canada':1580,'australia':1560,'ecuador':1570,'nigeria':1580,'egypt':1570,\n  'italy':1700,'norway':1650,'saudi arabia':1530,'qatar':1510,'turkey':1600\n};\nfunction getElo(name) {\n  const k = (name||'').toLowerCase().replace(/[^a-z ]/g,'');\n  if (ELO[k]) return ELO[k];\n  for (const [key,val] of Object.entries(ELO))\n    if (k.includes(key.substring(0,5))||key.includes(k.substring(0,5))) return val;\n  return 1550;\n}\nconst elo1 = getElo(home), elo2 = getElo(away);\nconst diff = elo1 - elo2;\nconst WC_AVG = 1.18;\nconst baseXG1 = Math.max(0.3, WC_AVG*(1+diff/700));\nconst baseXG2 = Math.max(0.3, WC_AVG*(1-diff/700));\n\nlet xgR1 = baseXG1 * timeRatio;\nlet xgR2 = baseXG2 * timeRatio;\n\nconst scoreDiff = gh - ga;\nconst DESP = 0.30, PARK = 0.15;\nif (scoreDiff < 0) {\n  xgR1 *= (1+Math.min(0.6,Math.abs(scoreDiff)*DESP));\n  xgR2 *= (1-Math.min(0.25,Math.abs(scoreDiff)*PARK));\n} else if (scoreDiff > 0) {\n  xgR2 *= (1+Math.min(0.6,scoreDiff*DESP));\n  xgR1 *= (1-Math.min(0.25,scoreDiff*PARK));\n}\n\n// ── FASE 3: Ajustar xG con estadísticas reales (tiros al arco) ───────────\n// Blend 60% ELO + 40% datos reales del partido\nlet statsAdjNote = '';\nif (Array.isArray(fx.statistics) && fx.statistics.length >= 2) {\n  const homeId = fx.teams?.home?.id;\n  const awayId = fx.teams?.away?.id;\n  const statsH = fx.statistics.find(s => s.team?.id === homeId || s.team?.name === home);\n  const statsA = fx.statistics.find(s => s.team?.id === awayId || s.team?.name === away);\n  if (statsH && statsA) {\n    const soTH = parseInt(statsH.statistics?.find(s=>s.type==='Shots on Goal')?.value || 0);\n    const soTA = parseInt(statsA.statistics?.find(s=>s.type==='Shots on Goal')?.value || 0);\n    const totalSoT = soTH + soTA;\n    if (totalSoT >= 4) {\n      const expectedRatio = xgR1 / (xgR1 + xgR2);\n      const observedRatio = soTH / totalSoT;\n      const blendedRatio = 0.6 * expectedRatio + 0.4 * observedRatio;\n      const totalXgR = xgR1 + xgR2;\n      const xgR1_prev = xgR1;\n      xgR1 = Math.max(0.05, totalXgR * blendedRatio);\n      xgR2 = Math.max(0.05, totalXgR * (1 - blendedRatio));\n      const delta = xgR1 - xgR1_prev;\n      if (Math.abs(delta) > 0.02) {\n        statsAdjNote = `📊 ${soTH}-${soTA} tiros al arco → xG ajustado ${delta>0?'+':''}${delta.toFixed(2)}`;\n      }\n    }\n  }\n}\n\n// ── 5. FACTOR ESTRELLA ────────────────────────────────────────────────────\nlet starWarn = '';\nlet starFactorH = 1.0, starFactorA = 1.0;\nconst homeNorm = home.toLowerCase().replace(/[^a-z]/g,'');\nconst awayNorm = away.toLowerCase().replace(/[^a-z]/g,'');\nfor (const est of estrellas) {\n  const eqNorm = (est.equipo||'').toLowerCase().replace(/[^a-z]/g,'');\n  const onHome = homeNorm.includes(eqNorm)||eqNorm.includes(homeNorm.substring(0,5));\n  const onAway = awayNorm.includes(eqNorm)||eqNorm.includes(awayNorm.substring(0,5));\n  if (onHome && est.factor_gol > starFactorH) {\n    starFactorH = est.factor_gol;\n    starWarn += `⚡ ${est.nombre} en cancha → incertidumbre elevada\\n`;\n  }\n  if (onAway && est.factor_gol > starFactorA) {\n    starFactorA = est.factor_gol;\n    starWarn += `⚡ ${est.nombre} en cancha → incertidumbre elevada\\n`;\n  }\n}\nconst lateGameMultiplier = elapsed >= 75 ? 1.4 : (elapsed >= 60 ? 1.2 : 1.0);\nxgR1 *= Math.pow(starFactorH, 0.4) * (starFactorH > 1 ? lateGameMultiplier : 1);\nxgR2 *= Math.pow(starFactorA, 0.4) * (starFactorA > 1 ? lateGameMultiplier : 1);\nxgR1 = Math.min(xgR1, 1.8);\nxgR2 = Math.min(xgR2, 1.8);\n\n// ── 6. Modelo Poisson ─────────────────────────────────────────────────────\nfunction poisson(lambda, k) {\n  if (lambda <= 0) return k === 0 ? 1 : 0;\n  let r = Math.exp(-lambda);\n  for (let i = 1; i <= k; i++) r *= lambda / i;\n  return Math.max(0, r);\n}\n\nlet pHW=0, pD=0, pAW=0;\nfor (let h=0;h<=7;h++) for (let a=0;a<=7;a++) {\n  const p = poisson(xgR1,h)*poisson(xgR2,a);\n  const fh=gh+h, fa=ga+a;\n  if (fh>fa) pHW+=p; else if (fh===fa) pD+=p; else pAW+=p;\n}\nconst tot=pHW+pD+pAW; pHW/=tot; pD/=tot; pAW/=tot;\n\nconst curTotal=gh+ga;\nlet pOv25=0;\nif (curTotal>=3) { pOv25=1.0; } else {\n  const need=3-curTotal;\n  for (let h=0;h<=6;h++) for (let a=0;a<=6;a++)\n    if (h+a>=need) pOv25+=poisson(xgR1,h)*poisson(xgR2,a);\n}\npOv25=Math.min(1,pOv25);\n\nconst pHScores = 1-Math.exp(-xgR1);\nconst pAScores = 1-Math.exp(-xgR2);\nconst pNoMore  = Math.exp(-xgR1)*Math.exp(-xgR2);\nlet pBtts;\nif (gh>0&&ga>0) pBtts=1.0;\nelse if (gh>0) pBtts=pAScores;\nelse if (ga>0) pBtts=pHScores;\nelse pBtts=pHScores*pAScores;\n\nconst pNextH = xgR1/(xgR1+xgR2);\nconst pNextA = xgR2/(xgR1+xgR2);\n\n// ── 7. Aplicar calibración aprendida ─────────────────────────────────────\nconst pNoMoreC = Math.max(0, Math.min(1, pNoMore  * cf.sin_goles));\nconst pBttsC   = Math.max(0, Math.min(1, pBtts   * cf.btts));\nconst pOv25C   = Math.max(0, Math.min(1, pOv25   * cf.mas25));\nconst raw1x2sum = pHW*cf['1x2'] + pD + pAW*cf['1x2'];\nconst pHWC = pHW*cf['1x2']/raw1x2sum;\nconst pDC  = pD/raw1x2sum;\nconst pAWC = pAW*cf['1x2']/raw1x2sum;\n\n// ── 8. Guardar predicción para aprendizaje ────────────────────────────────\nconst partidoKey = home+'|'+away+'|'+(fx.fixture?.date||'').substring(0,10);\ntry {\n  await $helpers.httpRequest({\n    method: 'POST',\n    url: SB_URL + '/rest/v1/log_predicciones_live',\n    headers: { ...SB_H, 'Content-Type':'application/json', Prefer:'return=minimal' },\n    body: JSON.stringify({\n      partido_key: partidoKey,\n      equipo1: home, equipo2: away, liga: 'WC2026',\n      minuto: elapsed, tiempo: statusShort,\n      goles1: gh, goles2: ga,\n      prob_local:    +pHWC.toFixed(4),\n      prob_empate:   +pDC.toFixed(4),\n      prob_visita:   +pAWC.toFixed(4),\n      prob_sin_goles:+pNoMoreC.toFixed(4),\n      prob_btts:     +pBttsC.toFixed(4),\n      prob_mas25:    +pOv25C.toFixed(4),\n      prob_next_local: +pNextH.toFixed(4),\n      prob_next_visit: +pNextA.toFixed(4)\n    })\n  });\n} catch(e) {}\n\n// ── FASE 2: Combo multi-partido (independencia válida entre partidos) ──────\n// REGLA: solo combinamos mercados de partidos DISTINTOS → P(A∩B) = P(A)×P(B)\n// φ≈0 entre partidos distintos → sin doble conteo → EV real\nlet comboMsg = '';\ntry {\n  const recentPreds = await $helpers.httpRequest({\n    method: 'GET',\n    url: SB_URL + '/rest/v1/log_predicciones_live?select=equipo1,equipo2,minuto,prob_local,prob_visita,prob_sin_goles&order=id.desc&limit=30',\n    headers: SB_H\n  });\n\n  if (Array.isArray(recentPreds) && recentPreds.length > 1) {\n    const homeQ = home.toLowerCase().substring(0,6);\n    const awayQ = away.toLowerCase().substring(0,6);\n\n    // Deduplicar: solo la predicción más reciente de cada partido distinto\n    const byMatch = new Map();\n    for (const p of recentPreds) {\n      const e1 = (p.equipo1||'').toLowerCase();\n      const e2 = (p.equipo2||'').toLowerCase();\n      const esDiferente = !e1.includes(homeQ) && !e2.includes(homeQ) &&\n                          !e1.includes(awayQ) && !e2.includes(awayQ);\n      const k = p.equipo1 + '|' + p.equipo2;\n      if (esDiferente && p.minuto >= 15 && !byMatch.has(k)) {\n        byMatch.set(k, p);\n      }\n    }\n\n    // Mejor pick de cada partido distinto\n    const otroPicks = [];\n    for (const [, p] of byMatch) {\n      const cands = [\n        { prob: p.prob_sin_goles || 0, label: 'Sin más goles', icon: '🔒' },\n        { prob: p.prob_local || 0,     label: `${p.equipo1} gana`, icon: '🏠' },\n        { prob: p.prob_visita || 0,    label: `${p.equipo2} gana`, icon: '✈️' },\n      ].filter(c => c.prob >= 0.65).sort((a,b) => b.prob - a.prob);\n      if (cands.length > 0) {\n        otroPicks.push({\n          match: `${p.equipo1} vs ${p.equipo2}`,\n          ...cands[0],\n          minuto: p.minuto\n        });\n      }\n    }\n\n    // Mejor pick del partido actual (solo 1, el más fuerte)\n    const myPick = [\n      { prob: pNoMoreC, label: 'Sin más goles', icon: '🔒', valid: elapsed >= 60 && pNoMoreC >= 0.65 },\n      { prob: pHWC,     label: `${home} gana`,  icon: '🏠', valid: pHWC >= 0.75 },\n      { prob: pAWC,     label: `${away} gana`,  icon: '✈️', valid: pAWC >= 0.75 },\n    ].filter(c => c.valid).sort((a,b) => b.prob - a.prob)[0];\n\n    if (myPick && otroPicks.length > 0) {\n      const combosValidos = [];\n      for (const otro of otroPicks.slice(0,5)) {\n        const probCombo = myPick.prob * otro.prob;\n        if (probCombo >= 0.45) {\n          combosValidos.push({\n            pick1: { match: `${home} vs ${away}`, ...myPick, minuto: elapsed },\n            pick2: otro,\n            probCombo: +(probCombo*100).toFixed(1),\n            cuotaMin: +(1/probCombo).toFixed(2)\n          });\n        }\n      }\n      combosValidos.sort((a,b) => b.probCombo - a.probCombo);\n\n      if (combosValidos.length > 0) {\n        const best = combosValidos[0];\n        comboMsg = '\\n━━━━━━━━━━━━━━━━━━━━\\n';\n        comboMsg += '🔥 LIVE COMBO SUGERIDO:\\n';\n        comboMsg += `(partidos independientes = sin doble conteo)\\n\\n`;\n        comboMsg += `${best.pick1.icon} ${best.pick1.match} (min ${best.pick1.minuto})\\n`;\n        comboMsg += `   → ${best.pick1.label}: ${(best.pick1.prob*100).toFixed(1)}%\\n\\n`;\n        comboMsg += `${best.pick2.icon} ${best.pick2.match} (min ${best.pick2.minuto})\\n`;\n        comboMsg += `   → ${best.pick2.label}: ${(best.pick2.prob*100).toFixed(1)}%\\n\\n`;\n        comboMsg += `Prob. combinada: ${best.probCombo}%\\n`;\n        comboMsg += `Cuota mínima para ventaja: ${best.cuotaMin}x\\n`;\n        comboMsg += `⚠️ Solo apuesta si encuentras ≥ ${best.cuotaMin}x`;\n      }\n    }\n  }\n} catch(e) {}\n\n// ── 10. Construir mensaje ─────────────────────────────────────────────────\nfunction pct(p) { return (Math.min(1,Math.max(0,p))*100).toFixed(1)+'%'; }\n\nconst stMap = {'1H':'1er Tiempo','HT':'DESCANSO','2H':'2do Tiempo','ET':'Prorroga','P':'Penales'};\nconst stLabel = stMap[statusShort]||statusShort;\nconst favFinal = pHWC>pAWC&&pHWC>pDC ? home : (pAWC>pHWC&&pAWC>pDC ? away : 'Empate');\nconst urgency = Math.abs(scoreDiff)>=2?' (remontada muy dificil)':(Math.abs(scoreDiff)===1?' (un gol lo cambia todo)':'');\n\nconst statsBlock = (fx.statistics||[]).map(ts => {\n  const team = ts.team?.name||'?';\n  const shots = ts.statistics?.find(s=>s.type==='Shots on Goal')?.value||0;\n  const poss  = ts.statistics?.find(s=>s.type==='Ball Possession')?.value||'?';\n  return team+': '+shots+' tiros | '+poss+' posesion';\n}).join('\\n');\n\nconst confianzaFlag = starWarn ?\n  `\\n⚠️ JUGADOR ESTRELLA ACTIVO:\\n${starWarn}(Prob ajustadas — puede superar la estadística)` : '';\nconst noGoalWarning = (pNoMoreC > 0.90 && starWarn) ?\n  '\\n🎯 Sin goles alto PERO estrella activa: puede romperla en cualquier momento' : '';\n\nconst lines = [\n  'PREDICCION EN VIVO | WC 2026',\n  `${home} ${gh} - ${ga} ${away}`,\n  `Min ${elapsed} | ${stLabel} | ${minutesLeft} min restantes${urgency}`,\n  '',\n  'RESULTADO FINAL ACTUALIZADO:',\n  `${home} gana: ${pct(pHWC)}`,\n  `Empate: ${pct(pDC)}`,\n  `${away} gana: ${pct(pAWC)}`,\n  `Pronóstico: ${favFinal}`,\n  '',\n  'MERCADOS EN VIVO:',\n  `Más de 2.5 goles: ${pct(pOv25C)}${curTotal>=3?' ✅ CUMPLIDO':''}`,\n  `Ambos anotan (BTTS): ${pct(pBttsC)}${gh>0&&ga>0?' ✅ CUMPLIDO':''}`,\n  `Sin más goles (cierre): ${pct(pNoMoreC)}`,\n  `Siguiente gol ${home}: ${pct(pNextH)}`,\n  `Siguiente gol ${away}: ${pct(pNextA)}`,\n  '',\n  statsBlock ? `STATS LIVE:\\n${statsBlock}` : '',\n  statsAdjNote || '',\n  '',\n  `ELO: ${home} ${elo1} | ${away} ${elo2}`,\n  `xG restante: ${home} ${xgR1.toFixed(2)} | ${away} ${xgR2.toFixed(2)}`,\n  scoreDiff!==0 ? `Ajuste marcador: ${scoreDiff<0?home:away} empuja +30% xG` : 'Partido igualado',\n  confianzaFlag,\n  noGoalWarning,\n  comboMsg\n].filter(Boolean).join('\\n');\n\nreturn [{ json: { chatId, predMsg: lines.substring(0,4000) } }];"
+      },
+      "id": "b5169a1d-a9ae-4e74-a1ae-0419c90e59be",
+      "name": "Calcular Inplay",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $vars.TELEGRAM_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.predMsg }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b040a69f-ce7d-4fca-9c37-f6bbce37c1f0",
+      "name": "Enviar Prediccion Vivo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1648,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.text }}",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              },
+              "rightValue": "/vivo"
+            },
+            {
+              "leftValue": "={{ $json.callbackData }}",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              },
+              "rightValue": "vv:"
+            },
+            {
+              "leftValue": "={{ $json.callbackData }}",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              },
+              "rightValue": "vvn:"
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "fb2d35d6-5b2f-4fc2-ac62-e1ff8e75a2e8",
+      "name": "Router Vivo",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        608,
+        752
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $vars.TELEGRAM_TOKEN + '/sendChatAction' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "action",
+              "value": "typing"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d9ec7745-771b-4e08-94df-b322dcaacb26",
+      "name": "Accion Typing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        384
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first()?.json || {};\nconst chatId = $('Parse Callback').first()?.json?.chatId || item.chatId || '';\nlet output = item.output || '';\nif (!output || output.trim().length < 10) {\n  return [{ json: { chatId, output: 'No pude procesar el analisis ahora. Intenta de nuevo en un momento.' } }];\n}\nconst MAX = 4000;\nif (output.length <= MAX) {\n  return [{ json: { chatId, output } }];\n}\n// Dividir en partes en saltos de línea naturales\nconst parts = [];\nwhile (output.length > 0) {\n  if (output.length <= MAX) { parts.push(output); break; }\n  let cut = output.lastIndexOf('\\n', MAX);\n  if (cut < 500) cut = MAX;\n  parts.push(output.substring(0, cut).trim());\n  output = output.substring(cut).trim();\n}\nreturn parts.map(p => ({ json: { chatId, output: p } }));"
+      },
+      "id": "fb4a1fa0-7ebf-47a0-b3a6-cb899ea3c42d",
+      "name": "Check IA Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        768
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Bot": {
+      "main": [
+        [
+          {
+            "node": "Extraer Contexto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comando o Seleccion": {
+      "main": [
+        [
+          {
+            "node": "Fetch Partidos Hoy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Partidos Hoy": {
+      "main": [
+        [
+          {
+            "node": "Construir Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Callback": {
+      "main": [
+        [
+          {
+            "node": "Confirmar Seleccion",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP 2026",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP 2022",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP 2018",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FD Matches",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "FD Standings",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Odds API",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP API Football",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP GNews",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP NewsAPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP 2026": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combinar Datos": {
+      "main": [
+        [
+          {
+            "node": "Calcular Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP 2022": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "HTTP 2018": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "FD Matches": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "FD Standings": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Preparar Resumen": {
+      "main": [
+        [
+          {
+            "node": "Analista IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analista IA": {
+      "main": [
+        [
+          {
+            "node": "Parsear Prediccion",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check IA Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Llama": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Analista IA",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir Menu": {
+      "main": [
+        [
+          {
+            "node": "Enviar Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Prediccion": {
+      "main": [
+        [
+          {
+            "node": "Guardar Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP API Football": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "HTTP GNews": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 7
+          }
+        ]
+      ]
+    },
+    "HTTP NewsAPI": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 8
+          }
+        ]
+      ]
+    },
+    "HTTP Odds API": {
+      "main": [
+        [
+          {
+            "node": "Consolidar Odds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consolidar Odds": {
+      "main": [
+        [
+          {
+            "node": "Combinar Datos",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Modelo Matematico": {
+      "main": [
+        [
+          {
+            "node": "XGBoost Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XGBoost Call": {
+      "main": [
+        [
+          {
+            "node": "Preparar Resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Stats": {
+      "main": [
+        [
+          {
+            "node": "AF Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AF Stats": {
+      "main": [
+        [
+          {
+            "node": "Modelo Matematico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Mercados": {
+      "main": [
+        [
+          {
+            "node": "Tipo Mercado IF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Comando o Seleccion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tipo Mercado IF": {
+      "main": [
+        [
+          {
+            "node": "Fetch Partidos Mercados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Router Mks Mkm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Partidos Mercados": {
+      "main": [
+        [
+          {
+            "node": "Construir Menu Mercados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Mks Mkm": {
+      "main": [
+        [
+          {
+            "node": "Parse Match Selection",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Market Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Market Request": {
+      "main": [
+        [
+          {
+            "node": "Odds API Mercados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Odds API Mercados": {
+      "main": [
+        [
+          {
+            "node": "Calcular Mercado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Calcular Mercado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir Menu Mercados": {
+      "main": [
+        [
+          {
+            "node": "Enviar Menu Mercados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Match Selection": {
+      "main": [
+        [
+          {
+            "node": "Enviar Tipos Mercado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Mercado": {
+      "main": [
+        [
+          {
+            "node": "Enviar Prediccion Mercado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tipo Vivo IF": {
+      "main": [
+        [
+          {
+            "node": "AF Live Fixtures",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AF Live Detalle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AF Live Fixtures": {
+      "main": [
+        [
+          {
+            "node": "Construir Selector Vivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir Selector Vivo": {
+      "main": [
+        [
+          {
+            "node": "Enviar Selector Vivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AF Live Detalle": {
+      "main": [
+        [
+          {
+            "node": "Calcular Inplay",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Calcular Inplay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Inplay": {
+      "main": [
+        [
+          {
+            "node": "Enviar Prediccion Vivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router Vivo": {
+      "main": [
+        [
+          {
+            "node": "Tipo Vivo IF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Router Mercados",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Contexto": {
+      "main": [
+        [
+          {
+            "node": "Accion Typing",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Router Vivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check IA Output": {
+      "main": [
+        [
+          {
+            "node": "Enviar Analisis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "a48731fd-0fe1-4642-8ab3-2f13826f953a",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "6fe05ae8e6a660f765f63602112dfbdcac6d0cd96639858654f971aec78498ea",
+    "description": "LEGACY: desactivar si usas telegram_inbound.json con el mismo bot token. Solo un Telegram Trigger activo por bot."
+  },
+  "nodeGroups": [],
+  "id": "74ZjREOmFFbHwapX",
+  "tags": []
+}
