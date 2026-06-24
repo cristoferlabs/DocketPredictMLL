@@ -28,7 +28,7 @@ from apps.worker.ml.guardrails import check_ev_guardrails
 from apps.worker.ml.model_loader import load_calibration_factors_from_db
 from apps.worker.ml.wc_audit import audit_upcoming_matches
 from apps.worker.ml.wc_predictions import save_wc_prediction
-from apps.worker.tasks.update_elo import get_wc_elo_ratings
+from apps.api.services.trading_card import build_trading_card, format_trading_message
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class TelegramAgentService:
             "/hoy — Partidos próximos\n"
             "/alta — Oportunidades con EV fair positivo (modelo > mercado sin vig)\n"
             "/stats — Métricas de calibración, calidad de datos y guardrails\n"
-            "Colombia vs Brasil — Análisis de un partido\n\n"
+            "Colombia vs Brasil — Análisis con pick, EV, semáforo y stake\n\n"
             "El modelo usa Poisson + ELO + datos WC 2018/2022/2026.\n"
             "Las cuotas de casas NO modifican el modelo; solo calculan EV.\n\n"
             "⚠️ Predicciones probabilísticas, no garantías."
@@ -290,66 +290,52 @@ class TelegramAgentService:
             else:
                 quality_note += " | EV bloqueado por calidad insuficiente"
 
-        if alta_only:
-            if not ev_opps:
-                return (
-                    f"⚽ {analysis.team1} vs {analysis.team2}\n\n"
-                    "Sin oportunidades de valor fair positivo ahora.\n"
-                    "El modelo no ve ventaja sobre el mercado sin vig.\n"
-                    f"({quality_note})\n\n"
-                    f"Modelo 1X2: {analysis.team1} {analysis.model.home_win*100:.1f}% | "
-                    f"Empate {analysis.model.draw*100:.1f}% | {analysis.team2} {analysis.model.away_win*100:.1f}%"
-                    if analysis.model
-                    else "Sin modelo."
-                )
-            lines = [f"💎 Alta probabilidad / valor fair\n⚽ {analysis.team1} vs {analysis.team2}\n"]
-            for o in ev_opps[:5]:
-                kelly = (o.metadata or {}).get("kelly_stake", 0)
-                lines.append(
-                    f"• {o.market} → {o.selection}\n"
-                    f"  Modelo: {o.model_prob*100:.1f}% | Fair: {o.fair_odds} | vig: {o.vig_pct:.1f}%\n"
-                    f"  EV fair: {o.expected_value*100:+.1f}% | edge: {o.edge_fair*100:+.1f}%\n"
-                    f"  Stake sugerido: {kelly:.2f}u (Kelly fraccionado)\n"
-                    f"  (bruto: {o.expected_value_raw*100:+.1f}%) | {o.priority}"
-                )
-                save_wc_prediction(
+        if not analysis.model:
+            return f"⚽ {analysis.team1} vs {analysis.team2}\n\nSin modelo disponible."
+
+        for o in ev_opps:
+            kelly = (o.metadata or {}).get("kelly_stake", 0)
+            save_wc_prediction(
+                self.db,
+                team_home=analysis.team1,
+                team_away=analysis.team2,
+                match_date=(analysis.fecha or "")[:10] or None,
+                market_type=o.market,
+                predicted_outcome=o.selection,
+                probability=o.model_prob,
+                expected_value_fair=o.expected_value,
+                edge_fair=o.edge_fair,
+                kelly_stake=kelly,
+                metadata={
+                    "priority": o.priority,
+                    "fair_odds": o.fair_odds,
+                    "wc_features": {
+                        "lambda_home": analysis.model.lambda_home,
+                        "lambda_away": analysis.model.lambda_away,
+                        "xg_home": analysis.xg.get(analysis.team1, 0),
+                        "xg_away": analysis.xg.get(analysis.team2, 0),
+                    },
+                },
+            )
+            if o.raw_odds:
+                record_pick_snapshot(
                     self.db,
                     team_home=analysis.team1,
                     team_away=analysis.team2,
-                    match_date=(analysis.fecha or "")[:10] or None,
-                    market_type=o.market,
-                    predicted_outcome=o.selection,
-                    probability=o.model_prob,
-                    expected_value_fair=o.expected_value,
-                    edge_fair=o.edge_fair,
-                    kelly_stake=kelly,
-                    metadata={
-                        "priority": o.priority,
-                        "fair_odds": o.fair_odds,
-                        "wc_features": {
-                            "lambda_home": m.lambda_home,
-                            "lambda_away": m.lambda_away,
-                            "xg_home": analysis.xg.get(analysis.team1, 0),
-                            "xg_away": analysis.xg.get(analysis.team2, 0),
-                        },
-                    },
+                    market=o.market,
+                    selection=o.selection,
+                    odds_decimal=o.raw_odds,
+                    fair_odds=o.fair_odds,
                 )
-                if o.raw_odds:
-                    record_pick_snapshot(
-                        self.db,
-                        team_home=analysis.team1,
-                        team_away=analysis.team2,
-                        market=o.market,
-                        selection=o.selection,
-                        odds_decimal=o.raw_odds,
-                        fair_odds=o.fair_odds,
-                    )
-            lines.append(f"\n📊 {quality_note}")
-            lines.append("\n⚠️ El modelo manda; EV fair usa cuotas sin margen de casa.")
-            return "\n".join(lines)
 
-        structured = self._analysis_to_dict(analysis, ev_opps, odds_event)
-        return await self._format_with_llm(text, structured)
+        card = build_trading_card(
+            analysis, ev_opps, odds_available=bool(odds_event)
+        )
+        return format_trading_message(
+            card,
+            quality_note=quality_note,
+            alta_header=alta_only,
+        )
 
     def _extract_teams(self, text: str) -> tuple[str, str]:
         t = text.strip()

@@ -11,11 +11,33 @@ LOCK_PATH = Path(__file__).resolve().parents[3] / ".telegram_poll.lock"
 
 
 def _pid_running(pid: int) -> bool:
+    """Cross-platform check whether a process ID is still alive."""
     if pid <= 0:
         return False
+
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return exit_code.value == STILL_ACTIVE
+                return False
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
+
     try:
         os.kill(pid, 0)
-    except OSError:
+    except (OSError, ProcessLookupError, SystemError):
         return False
     return True
 

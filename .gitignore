@@ -16,7 +16,9 @@ secrets.json
 
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
 *$py.class
 *.so
 .Python
@@ -55,10 +57,14 @@ htmlcov/
 .hypothesis/
 
 # Modelos entrenados (generados en runtime)
-models/*.json
-models/*.ubj
-models/*.pkl
-models/*.joblib
+models/
+!models/.gitkeep
+
+# Datos locales / cachés de ingesta
+data/
+.cache/
+*.sqlite
+*.db
 
 # Logs y locks locales
 *.log
@@ -73,7 +79,9 @@ redis_data/
 
 # IDEs y editores
 .idea/
-.vscode/
+.vscode/*
+!.vscode/settings.json
+.cursor/
 *.swp
 *.swo
 *~
