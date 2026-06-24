@@ -9,6 +9,7 @@ from apps.shared.config import get_settings
 from apps.worker.tasks.audit_data import audit_wc_data
 from apps.worker.tasks.backtest import run_backtest
 from apps.worker.tasks.calibrate_models import calibrate_models
+from apps.worker.tasks.clv_snapshots import capture_closing_lines
 from apps.worker.tasks.evaluate import evaluate_pending
 from apps.worker.tasks.ingest import ingest_fixtures
 from apps.worker.tasks.predict import predict_upcoming_matches
@@ -52,6 +53,7 @@ class WorkerSettings:
         calibrate_models,
         update_elo_after_finished_matches,
         audit_wc_data,
+        capture_closing_lines,
     ]
 
     cron_jobs = [
@@ -62,6 +64,7 @@ class WorkerSettings:
         cron(audit_wc_data, hour={8, 20}, minute=0),
         cron(run_backtest, weekday=0, hour=5, minute=0),
         cron(calibrate_models, weekday=0, hour=4, minute=0),
+        cron(capture_closing_lines, hour={5, 11, 17, 23}, minute=45),
     ]
 
     on_startup = startup

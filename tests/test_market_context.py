@@ -2,7 +2,7 @@
 
 from apps.api.services.odds_context import compute_market_context
 from apps.api.services.worldcup_engine import ModelMarkets
-from apps.worker.ml.odds_math import expected_value_raw
+from apps.worker.ml.odds_math import expected_value_fair, expected_value_raw
 
 
 def _model() -> ModelMarkets:
@@ -72,6 +72,11 @@ def test_market_context_ev_vs_market():
     assert brazil.market_odds is not None
     assert brazil.market_implied is not None
     assert brazil.divergence is not None
-    expected = round(expected_value_raw(0.503, brazil.market_odds) * 100, 1)
-    assert brazil.edge_pct == expected
+    assert brazil.fair_odds is not None
+    ev_fair = round(expected_value_fair(0.503, brazil.fair_odds) * 100, 1)
+    ev_raw = round(expected_value_raw(0.503, brazil.market_odds) * 100, 1)
+    assert brazil.edge_pct == ev_fair
+    assert brazil.ev_fair_pct == ev_fair
+    assert brazil.ev_raw_pct == ev_raw
     assert brazil.edge_pct < 0
+    assert abs(brazil.ev_raw_pct) >= abs(brazil.ev_fair_pct)

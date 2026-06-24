@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 
+from apps.api.services.engine_constants import ENGINE_VERSION_TAG
 from apps.api.services.telegram_agent import TelegramAgentService
 from apps.api.services.telegram_poll_lock import acquire_poll_lock
 from apps.shared.config import get_settings
@@ -98,9 +99,16 @@ async def poll_loop() -> None:
     base = f"https://api.telegram.org/bot{token}"
 
     if offset:
-        logger.info("Polling activo (offset=%s). Escribe /hoy al bot. Ctrl+C para salir.", offset)
+        logger.info(
+            "Polling activo (%s, offset=%s). Ctrl+C para salir.",
+            ENGINE_VERSION_TAG,
+            offset,
+        )
     else:
-        logger.info("Polling activo. Escribe /hoy al bot o al grupo. Ctrl+C para salir.")
+        logger.info(
+            "Polling activo (%s). Escribe /alta al bot. Ctrl+C para salir.",
+            ENGINE_VERSION_TAG,
+        )
 
     conflict_streak = 0
 

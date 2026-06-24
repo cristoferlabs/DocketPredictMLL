@@ -12,17 +12,21 @@ from apps.worker.ml.calibration import DEFAULT_CALIBRATION_FACTORS, calibrate_mo
 from apps.worker.ml.elo import EloConfig, predict_match as elo_predict
 from apps.worker.ml.poisson import outcome_probabilities, predict_match as poisson_predict
 
-_calibration_factors: dict[str, dict[str, float]] | None = None
+_calibration_factors: dict[str, Any] | None = None
 
 
-def set_calibration_factors(factors: dict[str, dict[str, float]] | None) -> None:
+def set_calibration_factors(factors: dict[str, Any] | None) -> None:
     """Override calibration factors (e.g. loaded from Supabase)."""
     global _calibration_factors
     _calibration_factors = factors
 
 
-def get_calibration_factors() -> dict[str, dict[str, float]]:
-    return _calibration_factors or DEFAULT_CALIBRATION_FACTORS
+def get_calibration_factors() -> dict[str, Any]:
+    if _calibration_factors:
+        return _calibration_factors
+    from apps.worker.ml.calibration import load_fitted_calibration_factors
+
+    return load_fitted_calibration_factors()
 
 HOST_BOOST = {
     "united states": 0.15,
@@ -319,11 +323,16 @@ def analyze_match(
     elo_diff = elo1 - elo2
     elo_win1 = round(1 / (1 + 10 ** (-elo_diff / 400)) * 100, 1)
 
+    from apps.shared.config import get_settings
+
+    blend_w = get_settings().market_blend_model_weight
     model = compute_model_markets(
         lambdas.lambda_home,
         lambdas.lambda_away,
         elo1,
         elo2,
+        blend_poisson=blend_w,
+        blend_elo=round(1.0 - blend_w, 4),
         calibrate=True,
     )
 

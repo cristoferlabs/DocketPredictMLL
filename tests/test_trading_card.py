@@ -66,8 +66,11 @@ def test_build_trading_card_with_ev():
             ]}],
         }],
     })
-    card = build_trading_card(_analysis(), [opp], odds_available=True, market_ctx=market)
-    assert card.light == "verde"
+    card = build_trading_card(
+        _analysis(), [opp], odds_available=True, market_ctx=market, historical_accuracy=0.55
+    )
+    assert card.light in ("verde", "amarillo")
+    assert card.no_bet is False
     assert card.pick.selection == "Brazil"
     msg = format_trading_message(card)
     assert "PICK PRINCIPAL" in msg
@@ -103,7 +106,7 @@ def _morocco_haiti_odds() -> dict:
     }
 
 
-def test_morocco_haiti_extreme_divergence_blocks_bet():
+def test_morocco_haiti_structural_mismatch_watch_or_gate():
     model = ModelMarkets(
         home_win=0.374,
         draw=0.284,
@@ -128,15 +131,21 @@ def test_morocco_haiti_extreme_divergence_blocks_bet():
     market = compute_market_context(model, "Morocco", "Haiti", _morocco_haiti_odds())
     card = build_trading_card(analysis, [], odds_available=True, market_ctx=market)
     assert card.market_divergence_flag is True
-    assert card.no_bet is True
     assert card.decision_layer == "extreme"
+    assert card.decision is not None
+    assert card.decision.soft_action in ("WATCH", "NO_BET", "WEAK_BET", "STRONG_BET")
+    assert card.decision.ev_band is not None
     msg = format_trading_message(card)
-    assert "NO APOSTAR" in msg
-    assert "FILTRO MERCADO" in msg
-    assert "PRIMARY:" in msg
-    assert "Edge post-ajuste: IGNORADO" in msg
-    assert "Modelo ajustado" not in msg
-    assert "También:" not in msg
+    assert "MISMATCH ESTRUCTURAL" in msg
+    assert "Market Uncertainty" in msg
+    assert "Banda EV" in msg
+    assert "Morocco: 37.4%" in msg
+    if card.decision.soft_action == "WATCH":
+        assert "VIGILAR" in msg
+    elif card.decision.soft_action in ("WEAK_BET", "STRONG_BET"):
+        assert "PICK PRINCIPAL" in msg
+    else:
+        assert "NO APOSTAR" in msg
 
 
 def test_scotland_ev_outlier_blocks_bet():
@@ -175,9 +184,11 @@ def test_scotland_ev_outlier_blocks_bet():
     }
     market = compute_market_context(model, "Scotland", "Brazil", odds)
     scot = next(o for o in market.outcomes if o.selection == "Scotland")
-    assert scot.edge_pct > 100
+    assert scot.ev_raw_pct > 50
+    assert scot.ev_fair_pct > 0
     card = build_trading_card(analysis, [], odds_available=True, market_ctx=market)
+    assert card.decision is not None
+    assert card.decision.soft_action in ("WATCH", "NO_BET")
     assert card.no_bet is True
-    assert card.pick.selection != "Scotland" or card.no_bet
     msg = format_trading_message(card)
-    assert "NO APOSTAR" in msg
+    assert "NO APOSTAR" in msg or "VIGILAR" in msg

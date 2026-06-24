@@ -140,6 +140,43 @@ async def calibrate_models(ctx: dict) -> dict:
             except Exception as exc:
                 logger.warning("insert factor %s/%s: %s", market, outcome, exc)
 
+    bucket_cfg = factors.get("1X2_buckets", {})
+    tw = bucket_cfg.get("team_win", {})
+    bucket_rows = {
+        "favorite_team_win": tw.get("favorite"),
+        "medium_team_win": tw.get("medium"),
+        "underdog_team_win": tw.get("underdog"),
+        "draw": bucket_cfg.get("draw"),
+        "draw_dampen_factor": bucket_cfg.get("draw_dampen_factor"),
+        "underdog_cap_factor": bucket_cfg.get("underdog_cap_factor"),
+    }
+    for outcome, factor in bucket_rows.items():
+        if factor is None:
+            continue
+        try:
+            db.schema("ml").table("calibration_factors").insert(
+                {
+                    "competition": COMPETITION,
+                    "market": "1X2_bucket",
+                    "outcome": outcome,
+                    "factor": float(factor),
+                    "method": "isotonic_bucket",
+                    "sample_size": metrics["sample_size"],
+                    "ece": ece_after,
+                    "is_active": True,
+                }
+            ).execute()
+            inserted += 1
+        except Exception as exc:
+            logger.warning("insert bucket %s: %s", outcome, exc)
+
+    try:
+        from apps.worker.ml.calibration import save_fitted_calibration_factors
+
+        save_fitted_calibration_factors(factors)
+    except Exception as exc:
+        logger.warning("save calibration artifact: %s", exc)
+
     bins = reliability_bins(p_over_cal, y_over_cal, n_bins=5)
     try:
         db.schema("ml").table("calibration_snapshots").insert(

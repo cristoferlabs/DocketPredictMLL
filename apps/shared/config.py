@@ -51,13 +51,39 @@ class Settings(BaseSettings):
     ev_max_ece: float = 0.15
     ev_min_edge_fair: float = 0.03
     ev_max_daily_picks: int = 5
-    ev_max_edge_fair: float = 0.12
+    ev_max_edge_fair: float = 0.18
     ev_max_fair: float = 0.15
     ev_max_model_market_divergence: float = 0.20
+    # Deprecated — blend vive en worldcup_engine.compute_model_markets (blend_poisson)
     market_blend_model_weight: float = 0.6
     market_shrink_threshold: float = 0.25
     kelly_fraction: float = 0.25
     min_odds_books: int = 3
+
+    # Parlay / combinadas (OUTPUT B — portfolio mode)
+    parlay_min_win_prob: float = 0.55
+    parlay_min_ev: float = 0.01
+    parlay_min_legs: int = 3
+    parlay_max_legs: int = 5
+    parlay_max_pool_legs: int = 8
+    parlay_max_matches_scan: int = 15
+    parlay_market_min_prob: float = 0.60
+
+    # SHARP single bet gate — métrica compuesta (incluye MDS+trust); evita doble gate
+    sharp_min_composite: int = 68
+    sharp_min_mds: int = 70  # telemetría / display
+    sharp_min_confidence: float = 0.70  # telemetría / display
+    sharp_max_stake_pct: float = 2.0
+
+    # WATCH — stake exploratorio (optimistic EV fair, no raw)
+    watch_exploratory_ev_threshold: float = 0.05
+    watch_exploratory_stake_pct: float = 0.25
+    watch_micro_ev_threshold: float = 0.12
+    watch_micro_stake_pct: float = 0.15
+
+    # Parlay stake
+    parlay_base_stake_pct: float = 0.35
+    parlay_max_stake_pct: float = 1.0
 
     @property
     def is_production(self) -> bool:

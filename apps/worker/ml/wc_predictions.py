@@ -151,6 +151,19 @@ async def evaluate_wc_predictions(db, finished_matches: list[dict] | None = None
                 "evaluated_at": now,
             }
         ).eq("id", pred["id"]).execute()
+
+        from apps.worker.ml.clv import finalize_clv_on_result
+
+        finalize_clv_on_result(
+            db,
+            prediction_id=pred["id"],
+            team_home=pred["team_home"],
+            team_away=pred["team_away"],
+            market=pred["market_type"],
+            selection=pred["predicted_outcome"],
+            is_correct=eval_result["is_correct"],
+            actual_outcome=eval_result["actual_outcome"],
+        )
         evaluated += 1
 
     return {"evaluated": evaluated}

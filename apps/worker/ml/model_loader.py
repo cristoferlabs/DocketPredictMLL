@@ -84,16 +84,38 @@ def load_calibration_factors_from_db(db) -> dict[str, dict[str, float]] | None:
             "1X2": {},
             "over_under_2.5": {},
             "btts": {},
+            "1X2_buckets": {},
         }
         market_map = {
             "1X2": "1X2",
             "over_under_2.5": "over_under_2.5",
             "btts": "btts",
+            "1X2_bucket": "1X2_buckets",
+        }
+        bucket_outcome_map = {
+            "favorite_team_win": ("team_win", "favorite"),
+            "medium_team_win": ("team_win", "medium"),
+            "underdog_team_win": ("team_win", "underdog"),
+            "draw": ("draw", None),
+            "draw_dampen_factor": ("draw_dampen_factor", None),
+            "underdog_cap_factor": ("underdog_cap_factor", None),
         }
         for r in rows.data:
             market = r["market"]
-            if market in market_map:
-                factors[market][r["outcome"]] = float(r["factor"])
+            outcome = r["outcome"]
+            factor = float(r["factor"])
+            if market in market_map and market != "1X2_bucket":
+                factors[market_map[market]][outcome] = factor
+            elif market == "1X2_bucket" and outcome in bucket_outcome_map:
+                key, sub = bucket_outcome_map[outcome]
+                if sub:
+                    factors["1X2_buckets"].setdefault("team_win", {})[sub] = factor
+                else:
+                    factors["1X2_buckets"][key] = factor
+        from apps.worker.ml.calibration import merge_bucket_config, load_fitted_calibration_factors
+
+        file_factors = load_fitted_calibration_factors()
+        factors = merge_bucket_config(factors, file_factors.get("1X2_buckets", {}))
         for grp, defaults in DEFAULT_CALIBRATION_FACTORS.items():
             for k, v in defaults.items():
                 factors[grp].setdefault(k, v)

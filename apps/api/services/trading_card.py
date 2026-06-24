@@ -5,41 +5,32 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from apps.api.services.engine_constants import ENGINE_VERSION_TAG
+from apps.api.services.ev_policy import format_ev_display
+
+from apps.api.services.bet_decision_tree import BetDecisionResult
+from apps.api.services.bet_profile import BetProfile, build_bet_profile, format_bet_profile_block
+from apps.api.services.parlay_engine import ParlayLeg, evaluate_parlay_leg
+from apps.api.services.sharp_engine import run_sharp_engine
+from apps.api.services.injury_news import InjuryReport
+from apps.api.services.market_dominance import (
+    LAYER_LABELS,
+    DiscrepancyDiagnosis,
+    MarketAdjustment,
+    MarketDominanceResult,
+)
 from apps.api.services.odds_context import (
     EvOpportunity,
     MarketContext1X2,
     OutcomeEdge,
-    best_bettable_market_ev,
-    check_market_outcome_allowed,
     max_market_divergence,
 )
-from apps.api.services.injury_news import InjuryReport
-from apps.api.services.market_calibration import (
-    DISCREPANCY_LABELS,
-    LAYER_LABELS,
-    DiscrepancyDiagnosis,
-    MarketAdjustment,
-    apply_market_calibration,
-    compute_recalibrated_confidence,
-    diagnose_discrepancy,
-    market_agreement_score,
-    model_confidence_tier,
-)
+from apps.api.services.trading_types import TradingPick
 from apps.api.services.worldcup_engine import MatchAnalysis, ModelMarkets
 from apps.shared.config import get_settings
 
-
-@dataclass
-class TradingPick:
-    market: str
-    selection: str
-    model_prob: float
-    ev_fair: float = 0.0
-    edge_fair: float = 0.0
-    fair_odds: float = 0.0
-    raw_odds: float = 0.0
-    kelly_stake: float = 0.0
-    from_ev: bool = False
+# Re-export for backward compatibility
+__all__ = ["TradingPick", "TradingCard", "build_trading_card", "format_trading_message"]
 
 
 @dataclass
@@ -50,7 +41,7 @@ class TradingCard:
     ronda: str
     model: ModelMarkets
     pick: TradingPick
-    light: str  # verde | amarillo | rojo
+    light: str
     light_emoji: str
     classification: str
     confidence: str
@@ -75,10 +66,16 @@ class TradingCard:
     adjusted_market: MarketContext1X2 | None = None
     diagnosis: DiscrepancyDiagnosis | None = None
     decision_layer: str = "normal"
+    dominance: MarketDominanceResult | None = None
+    decision: BetDecisionResult | None = None
+    mds: int = 0
+    sharp_allowed: bool = False
+    sharp_gate_label: str = ""
+    parlay_leg: ParlayLeg | None = None
+    bet_profile: BetProfile | None = None
 
 
 def prob_risk_emoji(probability: float) -> str:
-    """Emoji de riesgo por nivel de probabilidad del modelo."""
     if probability >= 0.55:
         return "🟢"
     if probability >= 0.40:
@@ -92,16 +89,6 @@ def _confidence_label(prob: float) -> tuple[str, str]:
     if prob >= 0.45:
         return "Media", "📊"
     return "Baja", "📉"
-
-
-def _risk_label(prob: float, draw_prob: float, is_underdog: bool) -> tuple[str, str]:
-    if draw_prob >= 0.28:
-        return "Alto", "⚠️"
-    if prob < 0.45 or is_underdog:
-        return "Alto", "⚠️"
-    if prob < 0.52:
-        return "Medio", "🔶"
-    return "Bajo", "✅"
 
 
 def _star_rating(ev: float, edge: float, prob: float) -> str:
@@ -123,139 +110,7 @@ def _star_rating(ev: float, edge: float, prob: float) -> str:
     elif prob >= 0.48:
         score += 0.5
     stars = max(1, min(5, round(score)))
-    filled = "★" * stars
-    empty = "☆" * (5 - stars)
-    return filled + empty
-
-
-def _pick_rating(
-    ev_market: float,
-    has_market: bool,
-    no_bet: bool,
-    *,
-    market_divergence_flag: bool = False,
-    confidence_score: int = 0,
-) -> tuple[int, str]:
-    """1–5 estrellas de fuerza del pick (jerarquía trading)."""
-    if no_bet or not has_market or market_divergence_flag:
-        return 1, "🔴"
-    if confidence_score < 35:
-        return 1, "🔴"
-    if ev_market >= 0.06:
-        return 5, "🟢"
-    if ev_market >= 0.04:
-        return 4, "🟢"
-    if ev_market >= 0.02:
-        return 3, "🟡"
-    if ev_market > 0:
-        return 2, "🔴"
-    return 1, "🔴"
-
-
-def _traffic_light(
-    ev_market: float,
-    has_market: bool,
-    *,
-    market_divergence_flag: bool = False,
-    confidence_score: int = 0,
-) -> tuple[str, str, str]:
-    if market_divergence_flag:
-        return "rojo", "🔴", "Modelo desacoplado del mercado — no apostar"
-    if not has_market or ev_market <= 0:
-        return "rojo", "🔴", "Sin valor, no apostar"
-    if confidence_score < 35:
-        return "rojo", "🔴", "Confianza insuficiente vs mercado"
-    if ev_market >= 0.04:
-        return "verde", "🟢", "Apuesta recomendada"
-    if ev_market >= 0.02:
-        return "amarillo", "🟡", "Apuesta moderada"
-    return "rojo", "🔴", "Sin valor, no apostar"
-
-
-def _pick_from_model(analysis: MatchAnalysis) -> TradingPick:
-    m = analysis.model
-    assert m is not None
-    candidates = [
-        ("1X2", analysis.team1, m.home_win),
-        ("1X2", "Empate", m.draw),
-        ("1X2", analysis.team2, m.away_win),
-    ]
-    market, selection, prob = max(candidates, key=lambda x: x[2])
-    fair = round(1 / prob, 2) if prob > 0 else 0.0
-    return TradingPick(
-        market=market,
-        selection=selection,
-        model_prob=prob,
-        fair_odds=fair,
-        from_ev=False,
-    )
-
-
-def _pick_from_ev(opp: EvOpportunity) -> TradingPick:
-    kelly = (opp.metadata or {}).get("kelly_stake", 0.0)
-    return TradingPick(
-        market=opp.market,
-        selection=opp.selection,
-        model_prob=opp.model_prob,
-        ev_fair=opp.expected_value,
-        edge_fair=opp.edge_fair,
-        fair_odds=opp.fair_odds,
-        raw_odds=opp.raw_odds,
-        kelly_stake=kelly,
-        from_ev=True,
-    )
-
-
-def _rationale(
-    pick: TradingPick,
-    analysis: MatchAnalysis,
-    light: str,
-    *,
-    market_divergence_flag: bool = False,
-    divergence_lines: list[str] | None = None,
-    diagnosis: DiscrepancyDiagnosis | None = None,
-    adjustment: MarketAdjustment | None = None,
-) -> str:
-    m = analysis.model
-    if not m:
-        return "Datos insuficientes para recomendar."
-
-    if market_divergence_flag:
-        diag = ""
-        if diagnosis:
-            diag = f" Tipo: {diagnosis.label} — {diagnosis.description}."
-        if adjustment and adjustment.layer == "extreme":
-            return (
-                f"BLOQUEO EXTREMO: divergencia modelo vs mercado.{diag} "
-                "El modelo conserva su edge; el mercado actúa solo como filtro "
-                "(no se mezclan probabilidades). Stake 0%."
-            )
-        lines = divergence_lines or []
-        detail = lines[0] if lines else "divergencia modelo vs mercado"
-        return (
-            f"FILTRO MERCADO: {detail}.{diag} "
-            "Modelo base intacto; sin apuesta hasta alinear señales."
-        )
-
-    if light == "rojo":
-        if not pick.from_ev:
-            best = max(m.home_win, m.draw, m.away_win)
-            if best < 0.50:
-                fav = pick.selection
-                return (
-                    f"{fav} no supera el 50% en el modelo; "
-                    f"alta probabilidad de empate o sorpresa."
-                )
-            return "No existe ventaja estadística frente al mercado."
-        return "EV no supera umbrales o cuota actual por debajo de la justa."
-
-    if pick.from_ev and pick.ev_fair > 0:
-        return (
-            f"Modelo {pick.model_prob*100:.1f}% alineado con mercado; "
-            f"edge {pick.edge_fair*100:+.1f}%."
-        )
-
-    return f"Pick del modelo ({pick.model_prob*100:.1f}%); confirma cuota antes de apostar."
+    return "★" * stars + "☆" * (5 - stars)
 
 
 def _divergence_alert_lines(market_ctx: MarketContext1X2 | None) -> list[str]:
@@ -273,18 +128,58 @@ def _divergence_alert_lines(market_ctx: MarketContext1X2 | None) -> list[str]:
     return lines
 
 
-def _pick_from_market_outcome(outcome: OutcomeEdge) -> TradingPick:
-    ev = outcome.edge_pct / 100.0
-    return TradingPick(
-        market="1X2",
-        selection=outcome.selection,
-        model_prob=outcome.model_prob,
-        ev_fair=ev,
-        edge_fair=ev,
-        fair_odds=outcome.model_fair_odds,
-        raw_odds=outcome.market_odds or 0.0,
-        from_ev=ev > 0,
-    )
+def _rationale(
+    pick: TradingPick,
+    analysis: MatchAnalysis,
+    decision: BetDecisionResult,
+    *,
+    divergence_lines: list[str] | None = None,
+    diagnosis: DiscrepancyDiagnosis | None = None,
+    dominance: MarketDominanceResult | None = None,
+) -> str:
+    m = analysis.model
+    if not m:
+        return "Datos insuficientes para recomendar."
+
+    if decision.soft_action == "WATCH":
+        band = ""
+        if decision.ev_band:
+            b = decision.ev_band
+            band = (
+                f" EV optimista {b.optimistic*100:+.1f}% | "
+                f"base {b.base*100:+.1f}% | pesimista {b.pessimistic*100:+.1f}%."
+            )
+        return (
+            f"VIGILAR: edge detectado pero stake 0%.{band} "
+            f"MUS {decision.mus:.2f} — {decision.blocked_reason or 'contexto mixto'}."
+        )
+
+    if decision.no_bet and dominance and dominance.layer == "extreme":
+        diag = ""
+        if diagnosis:
+            diag = f" {diagnosis.label}: {diagnosis.description}."
+        return (
+            f"MISMATCH ESTRUCTURAL (Δ {dominance.max_raw_divergence*100:.0f}%).{diag} "
+            f"Gate MUS: {decision.blocked_reason or 'mercado confiado'}. Stake 0%."
+        )
+
+    if decision.no_bet:
+        reason = decision.blocked_reason or "sin valor"
+        return f"NO APOSTAR ({reason}). Modelo base intacto."
+
+    if decision.soft_action == "WEAK_BET":
+        return (
+            f"Apuesta cauta — MUS {decision.mus:.2f}, "
+            f"EV base {pick.ev_fair*100:+.1f}%."
+        )
+
+    if pick.from_ev and pick.ev_fair > 0:
+        return (
+            f"Modelo {pick.model_prob*100:.1f}% alineado con mercado; "
+            f"edge {pick.edge_fair*100:+.1f}%."
+        )
+
+    return f"Pick del modelo ({pick.model_prob*100:.1f}%); confirma cuota antes de apostar."
 
 
 def build_trading_card(
@@ -302,124 +197,54 @@ def build_trading_card(
     if not m:
         raise ValueError("analysis sin modelo")
 
-    from apps.api.services.odds_context import compute_market_context
-
-    settings = get_settings()
-    max_div = settings.ev_max_model_market_divergence
-    max_ev = settings.ev_max_fair
-
-    if market_ctx is None:
-        market_ctx = compute_market_context(m, analysis.team1, analysis.team2, None)
-
-    adjustment, adjusted_ctx = apply_market_calibration(
-        m,
-        market_ctx,
-        analysis.team1,
-        analysis.team2,
+    sharp = run_sharp_engine(
+        analysis,
+        ev_opps,
+        market_ctx=market_ctx,
+        injury_report=injury_report,
         data_quality_pct=data_quality_pct,
         hist_played=hist_played,
-        extreme_threshold=max_div,
+        historical_accuracy=historical_accuracy,
     )
+    pipeline = sharp.pipeline
+    dominance = pipeline.market.dominance
+    decision = sharp.decision
+    market_ctx = pipeline.market.context
 
-    ev_opps = ev_opps or []
-    max_div_val = max_market_divergence(market_ctx)
-    decision_layer = adjustment.layer if adjustment else "normal"
-    divergence_flag = decision_layer == "extreme"
-    divergence_lines = _divergence_alert_lines(market_ctx) if divergence_flag else []
-
-    diagnosis = diagnose_discrepancy(
+    parlay_leg = evaluate_parlay_leg(
         analysis,
         market_ctx,
-        max_divergence=max_div_val,
-        data_quality_pct=data_quality_pct,
-        hist_played=hist_played,
-        layer=decision_layer,  # type: ignore[arg-type]
+        dominance,
+        injury_report=injury_report,
     )
-
-    if decision_layer == "extreme":
-        adjusted_ctx = None
-
-    # EV y picks SIEMPRE sobre modelo base — mercado es filtro, no reemplazo
-    decision_ctx = market_ctx
-
-    if ev_opps and not divergence_flag:
-        primary = _pick_from_ev(ev_opps[0])
-        extras = [_pick_from_ev(o) for o in ev_opps[1:4]]
-    elif decision_ctx and decision_ctx.has_market and not divergence_flag:
-        bettable: list[OutcomeEdge] = []
-        for o in decision_ctx.outcomes:
-            ok, _ = check_market_outcome_allowed(
-                o, max_divergence=max_div, max_ev=max_ev
-            )
-            if ok:
-                bettable.append(o)
-        if bettable:
-            best_o = max(bettable, key=lambda x: x.edge_pct)
-            primary = _pick_from_market_outcome(best_o)
-        else:
-            primary = _pick_from_model(analysis)
-        extras = []
+    if sharp.sharp_allowed:
+        sharp_gate_label = "BET"
+    elif decision.soft_action == "WATCH":
+        sharp_gate_label = "WATCH"
     else:
-        primary = _pick_from_model(analysis)
-        extras = []
+        sharp_gate_label = "NO_BET"
 
-    has_market = bool(market_ctx and market_ctx.has_market)
-    ev_market = (
-        0.0
-        if divergence_flag
-        else best_bettable_market_ev(
-            decision_ctx, max_divergence=max_div, max_ev=max_ev
-        )
-    )
-    if ev_opps and not divergence_flag:
-        ev_market = max(ev_market, ev_opps[0].expected_value)
-
-    agreement = market_agreement_score(max_div_val)
-    injury_penalty = 0.0
-    if injury_report and (injury_report.has_injuries or injury_report.has_suspensions):
-        injury_penalty = 8.0
-
-    tier = model_confidence_tier(m)
-    conf_score = compute_recalibrated_confidence(
-        data_quality_pct=data_quality_pct,
-        market_agreement=agreement,
-        historical_accuracy=historical_accuracy,
-        injury_penalty=injury_penalty,
-        model_tier=tier,
-        layer=decision_layer,  # type: ignore[arg-type]
-    )
-
-    light, light_emoji, classification = _traffic_light(
-        ev_market,
-        has_market,
-        market_divergence_flag=divergence_flag,
-        confidence_score=conf_score,
-    )
-    no_bet = light == "rojo" or divergence_flag
-    pick_rating, pick_rating_emoji = _pick_rating(
-        ev_market,
-        has_market,
-        no_bet,
-        market_divergence_flag=divergence_flag,
-        confidence_score=conf_score,
-    )
+    assert decision.pick is not None
+    primary = decision.pick
+    divergence_flag = dominance.layer == "extreme"
+    divergence_lines = _divergence_alert_lines(market_ctx) if divergence_flag else []
     conf_label, conf_emoji = _confidence_label(primary.model_prob)
-    is_dog = primary.selection not in (analysis.team1, "Empate") and primary.model_prob < 0.40
-    if primary.selection == analysis.team2 and primary.model_prob < 0.45:
-        is_dog = True
-    risk, risk_emoji = _risk_label(primary.model_prob, m.draw, is_dog)
     if divergence_flag:
-        risk, risk_emoji = "Alto", "⚠️"
         conf_label, conf_emoji = "Baja", "📉"
 
-    min_odds = round(primary.fair_odds, 2) if primary.fair_odds > 1 else None
-    stake_pct = round(primary.kelly_stake * 100, 1) if primary.kelly_stake else 0.0
-    if no_bet:
-        stake_pct = 0.0
-    elif light == "verde" and stake_pct < 0.5:
-        stake_pct = max(stake_pct, 0.5)
-    elif light == "amarillo" and stake_pct < 0.25:
-        stake_pct = 0.5 if primary.ev_fair >= 0.02 else 0.25
+    bet_profile = build_bet_profile(
+        model=m,
+        team1=analysis.team1,
+        team2=analysis.team2,
+        market_ctx=market_ctx,
+        dominance=dominance,
+        decision=decision,
+        parlay_leg=parlay_leg,
+        injury_report=injury_report,
+        sharp_allowed=sharp.sharp_allowed,
+        sharp_gate_label=sharp_gate_label,
+        mds=sharp.mds,
+    )
 
     return TradingCard(
         team1=analysis.team1,
@@ -428,44 +253,49 @@ def build_trading_card(
         ronda=analysis.ronda,
         model=m,
         pick=primary,
-        light=light,
-        light_emoji=light_emoji,
-        classification=classification,
+        light=decision.light,
+        light_emoji=decision.light_emoji,
+        classification=decision.classification,
         confidence=conf_label,
         confidence_emoji=conf_emoji,
         stars=_star_rating(primary.ev_fair, primary.edge_fair, primary.model_prob),
-        stake_pct=stake_pct,
-        risk=risk,
-        risk_emoji=risk_emoji,
-        min_odds=min_odds,
+        stake_pct=decision.stake_pct,
+        risk=decision.risk,
+        risk_emoji=decision.risk_emoji,
+        min_odds=decision.min_odds,
         rationale=_rationale(
             primary,
             analysis,
-            light,
-            market_divergence_flag=divergence_flag,
+            decision,
             divergence_lines=divergence_lines,
-            diagnosis=diagnosis,
-            adjustment=adjustment,
+            diagnosis=dominance.diagnosis,
+            dominance=dominance,
         ),
-        no_bet=no_bet,
-        extra_picks=extras,
+        no_bet=decision.no_bet,
+        extra_picks=decision.extra_picks,
         market=market_ctx,
-        confidence_score=conf_score,
-        pick_rating=pick_rating,
-        pick_rating_emoji=pick_rating_emoji,
+        confidence_score=decision.confidence_score,
+        pick_rating=decision.pick_rating,
+        pick_rating_emoji=decision.pick_rating_emoji,
         injury=injury_report,
         market_divergence_flag=divergence_flag,
-        max_divergence=max_div_val,
+        max_divergence=dominance.max_raw_divergence,
         divergence_lines=divergence_lines,
-        market_adjustment=adjustment,
-        adjusted_market=adjusted_ctx,
-        diagnosis=diagnosis,
-        decision_layer=decision_layer,
+        market_adjustment=dominance.adjustment,
+        adjusted_market=dominance.adjusted_market,
+        diagnosis=dominance.diagnosis,
+        decision_layer=dominance.layer,
+        dominance=dominance,
+        decision=decision,
+        mds=sharp.mds,
+        sharp_allowed=sharp.sharp_allowed,
+        sharp_gate_label=sharp_gate_label,
+        parlay_leg=parlay_leg,
+        bet_profile=bet_profile,
     )
 
 
 def build_trading_card_from_dict(data: dict[str, Any]) -> TradingCard:
-    """Rebuild trading card from serialized analysis dict (fallback sin LLM)."""
     partido = data.get("partido", "")
     teams = partido.split(" vs ") if " vs " in partido else ["Local", "Visitante"]
     t1 = teams[0].strip() if teams else "Local"
@@ -541,6 +371,17 @@ def _format_edge_line(o: OutcomeEdge) -> str:
     return f"{o.selection}: {sign}{o.edge_pct:.1f}%"
 
 
+def _format_tree_path(path: list[str]) -> list[str]:
+    """Colapsa tree_path a líneas legibles para Telegram."""
+    skip = {"start"}
+    lines: list[str] = []
+    for step in path:
+        if step in skip:
+            continue
+        lines.append(f"   → {step}")
+    return lines[-5:]
+
+
 def format_trading_message(
     card: TradingCard,
     *,
@@ -550,29 +391,31 @@ def format_trading_message(
     m = card.model
     t1, t2 = card.team1, card.team2
     market = card.market
+    dom = card.dominance
+    dec = card.decision
 
     lines: list[str] = []
+    lines.append(f"🟢 {ENGINE_VERSION_TAG}")
     if alta_header:
-        lines.append("💎 Alta probabilidad / valor fair")
+        lines.append("💎 Alta probabilidad / valor fair (SHARP scan)")
     lines.append(f"⚽ {t1} vs {t2}")
     if card.fecha:
         lines.append(f"📅 {card.fecha}" + (f" | {card.ronda}" if card.ronda else ""))
 
     lines.append("")
-    lines.append("📊 Nivel 1 — Modelo puro (Poisson + ELO)")
+    lines.append("📊 Nivel 1 — MODEL (fuente de verdad)")
     lines.append(f"{prob_risk_emoji(m.home_win)} {t1}: {m.home_win*100:.1f}%")
     lines.append(f"{prob_risk_emoji(m.draw)} Empate: {m.draw*100:.1f}%")
     lines.append(f"{prob_risk_emoji(m.away_win)} {t2}: {m.away_win*100:.1f}%")
     lines.append(f"{prob_risk_emoji(m.over_25)} Over 2.5: {m.over_25*100:.1f}%")
     lines.append(f"{prob_risk_emoji(m.btts_yes)} BTTS Sí: {m.btts_yes*100:.1f}%")
 
-    adj = card.market_adjustment
-    layer = card.decision_layer
-    layer_label = LAYER_LABELS.get(layer, layer)
+    if card.bet_profile:
+        lines.extend(format_bet_profile_block(card.bet_profile))
 
     if market and market.has_market:
         lines.append("")
-        lines.append("📊 Nivel 2 — Filtro mercado (validez)")
+        lines.append("📊 Nivel 2 — MARKET (solo contexto, sin corrección)")
         for o in market.outcomes:
             if o.market_implied:
                 lines.append(
@@ -580,18 +423,71 @@ def format_trading_message(
                     + (f" | Δ {o.divergence*100:.0f}%" if o.divergence else "")
                 )
 
-    lines.append("")
-    lines.append(f"📊 Nivel 3 — Motor decisión: {layer_label}")
-    if adj and layer != "normal":
-        lines.append(f"   ({adj.layer_reason})")
-
-    if adj and adj.blend_applied and layer == "doubt" and card.max_divergence < 0.20:
+    if dom and dom.uncertainty:
+        u = dom.uncertainty
         lines.append("")
+        lines.append("📊 Market Uncertainty (MUS)")
+        lines.append(f"   Confianza mercado: {u.confidence_market:.2f}")
+        lines.append(f"   MUS: {u.mus:.2f} (alto = mercado menos confiable)")
+        lines.append(f"   {u.rationale}")
+
+    if dom and dom.layer != "normal":
+        lines.append("")
+        lines.append("🧠 Market Dominance")
+        lines.append(f"   Δ raw: {dom.max_raw_divergence*100:.1f}%")
+        lines.append(f"   Clasificación: {dom.classification}")
+        lines.append(f"   Fiabilidad modelo: {dom.model_reliability:.2f}")
+        lines.append(f"   Fiabilidad mercado: {dom.market_reliability:.2f}")
+        if dom.is_market_dominant:
+            lines.append("   → MARKET DOMINANT — modelo degradado en este partido")
+
+    layer = card.decision_layer
+    layer_label = LAYER_LABELS.get(layer, layer)
+    lines.append("")
+    lines.append(f"📊 Nivel 3 — DECISION ({layer_label})")
+    if dom and dom.layer_reason and layer != "normal":
+        lines.append(f"   ({dom.layer_reason})")
+    if dec and dec.tree_path:
+        lines.append("   Árbol:")
+        for step in _format_tree_path(dec.tree_path):
+            lines.append(step)
+    if card.mds:
+        lines.append(f"   MDS (SHARP): {card.mds}/100")
+    if card.sharp_gate_label:
+        lines.append(f"   SHARP gate: {card.sharp_gate_label}")
+    if dec and dec.trust:
+        t = dec.trust
         lines.append(
-            f"📎 Referencia auxiliar ({adj.model_weight:.0%}/{adj.market_weight:.0%}) "
-            "— informativa, NO usada en EV"
+            f"   Arbitraje: {t.trust_side} "
+            f"(modelo {t.model_confidence:.0%} vs mercado {t.market_confidence:.0%})"
         )
-        lines.append(f"   {t1}: {adj.home*100:.1f}% | Empate: {adj.draw*100:.1f}% | {t2}: {adj.away*100:.1f}%")
+
+    if dec and dec.ev_band:
+        b = dec.ev_band
+        lines.append("")
+        lines.append("📊 Banda EV (decisión)")
+        lines.append(f"   Optimista: {b.optimistic*100:+.1f}%")
+        lines.append(f"   Base: {b.base*100:+.1f}%")
+        lines.append(f"   Pesimista: {b.pessimistic*100:+.1f}%")
+
+    pl = card.parlay_leg
+    if pl is not None:
+        lines.append("")
+        lines.append("📊 PARLAY ENGINE (independiente de SHARP)")
+        if pl.stable and not pl.exclude_reason:
+            label = pl.selection
+            if pl.selection == t1:
+                label = f"{t1} gana"
+            elif pl.selection == t2:
+                label = f"{t2} gana"
+            lines.append(f"   Estado: ELIGIBLE → {label}")
+            lines.append(
+                f"   P efectiva {pl.effective_prob*100:.0f}% | score {pl.pick_score:.3f}"
+            )
+        elif pl.exclude_reason:
+            lines.append(f"   Estado: RECHAZADO — {pl.exclude_reason}")
+        else:
+            lines.append("   Estado: NO ELEGIBLE")
 
     lines.append("")
     lines.append("─────────────────")
@@ -611,15 +507,13 @@ def format_trading_message(
             if o.market_odds and o.market_odds > 1:
                 lines.append(f"{o.selection}: {o.market_odds:.2f}")
         lines.append("")
-        lines.append("💎 Edge (solo modelo base — único válido para EV)")
+        lines.append("💎 Edge (modelo base)")
         for o in market.outcomes:
             lines.append(_format_edge_line(o))
-        if card.market_divergence_flag:
-            lines.append("   ⚠️ Edge post-ajuste: IGNORADO (Δ > umbral)")
 
     if card.market_divergence_flag:
         lines.append("")
-        lines.append("🚨 FILTRO MERCADO — BLOQUEO")
+        lines.append("⚠️ MISMATCH ESTRUCTURAL — gate MUS")
         if card.diagnosis:
             d = card.diagnosis
             lines.append(f"PRIMARY: {d.label}")
@@ -631,10 +525,7 @@ def format_trading_message(
             lines.append(f"RESULT: {d.result}")
         for line in card.divergence_lines:
             lines.append(f"• {line}")
-        lines.append(
-            f"Δ modelo vs mercado: {card.max_divergence*100:.1f}% "
-            f"(umbral {get_settings().ev_max_model_market_divergence*100:.0f}%)"
-        )
+        lines.append(f"Δ modelo vs mercado: {card.max_divergence*100:.1f}%")
 
     injury = card.injury
     if injury and injury.articles:
@@ -654,24 +545,45 @@ def format_trading_message(
     lines.append("─────────────────")
 
     if card.no_bet:
-        lines.append("🛑 NO APOSTAR")
+        if dec and dec.soft_action == "WATCH":
+            if card.stake_pct > 0:
+                lines.append("👁️ MICRO-STAKE WATCH — sin single SHARP")
+            else:
+                lines.append("👁️ VIGILAR — sin single SHARP")
+        else:
+            lines.append("🛑 NO APOSTAR")
         lines.append(f"⭐ Rating: {card.pick_rating_emoji} {card.pick_rating}/5")
+        if dec and dec.soft_action == "WATCH":
+            pick_label = _format_pick_label(card.pick, t1, t2)
+            lines.append(f"🎯 Edge detectado: {pick_label}")
+            if card.stake_pct > 0:
+                lines.append(f"💵 Micro-stake: {card.stake_pct:g}% bankroll")
         lines.append("")
         lines.append("📉 Motivo:")
         lines.append(card.rationale)
     else:
         pick_label = _format_pick_label(card.pick, t1, t2)
-        lines.append("🎯 PICK PRINCIPAL")
+        if dec and dec.soft_action == "WATCH" and card.stake_pct > 0:
+            lines.append("👁️ MICRO-STAKE WATCH")
+        else:
+            lines.append("🎯 PICK PRINCIPAL")
         lines.append(pick_label)
         lines.append(f"⭐ Rating: {card.pick_rating_emoji} {card.pick_rating}/5")
         lines.append("")
         if card.pick.from_ev or (market and market.has_market):
-            best_edge = max((o.edge_pct for o in market.outcomes), default=0) if market else 0
-            pick_edge = next(
-                (o.edge_pct for o in (market.outcomes if market else []) if o.selection == card.pick.selection),
-                best_edge,
+            pick_outcome = next(
+                (o for o in (market.outcomes if market else []) if o.selection == card.pick.selection),
+                None,
             )
-            lines.append(f"💰 EV: {pick_edge:+.1f}%")
+            if pick_outcome:
+                lines.append(
+                    "💰 " + format_ev_display(
+                        ev_fair_pct=pick_outcome.ev_fair_pct,
+                        ev_raw_pct=pick_outcome.ev_raw_pct,
+                    )
+                )
+            elif card.pick.ev_fair:
+                lines.append(f"💰 EV fair {card.pick.ev_fair*100:+.1f}%")
         if card.pick.raw_odds > 1:
             lines.append(f"🏦 Cuota mercado: {card.pick.raw_odds:.2f}")
         if card.min_odds:
@@ -686,7 +598,9 @@ def format_trading_message(
     lines.append("")
     lines.append(f"🎯 Confianza: {card.confidence_score}/100")
     lines.append(f"{card.risk_emoji} Riesgo: {card.risk}")
-    if card.no_bet:
+    if dec and dec.soft_action == "WATCH" and card.stake_pct > 0:
+        lines.append(f"💵 Stake exploratorio: {card.stake_pct:g}% bankroll")
+    elif card.no_bet:
         lines.append("💵 Stake: 0%")
     elif card.stake_pct > 0:
         lines.append(f"💵 Stake: {card.stake_pct:g}% bankroll")
@@ -699,7 +613,7 @@ def format_trading_message(
         for ep in card.extra_picks:
             label = _format_pick_label(ep, t1, t2)
             lines.append(
-                f"• {label} | EV {ep.ev_fair*100:+.1f}% | "
+                f"• {label} | {format_ev_display(ev_fair_pct=ep.ev_fair*100, ev_raw_pct=None)} | "
                 f"cuota min {ep.fair_odds:.2f} | stake {ep.kelly_stake*100:.1f}%"
             )
 
