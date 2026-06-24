@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     football_data_key: str = ""
     sportmonks_key: str = ""
     odds_api_key: str = ""
+    gnews_api_key: str = ""
+    newsapi_key: str = ""
     openweather_key: str = ""
 
     telegram_bot_token: str = ""
@@ -52,6 +54,8 @@ class Settings(BaseSettings):
     ev_max_edge_fair: float = 0.12
     ev_max_fair: float = 0.15
     ev_max_model_market_divergence: float = 0.20
+    market_blend_model_weight: float = 0.6
+    market_shrink_threshold: float = 0.25
     kelly_fraction: float = 0.25
     min_odds_books: int = 3
 

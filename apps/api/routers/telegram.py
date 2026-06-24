@@ -43,6 +43,15 @@ async def telegram_webhook(request: Request, db=Depends(get_db)):
     if not settings.telegram_bot_token:
         raise HTTPException(status_code=503, detail="TELEGRAM_BOT_TOKEN no configurado en .env")
 
+    if settings.telegram_ingestion_mode.lower() == "poll":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "TELEGRAM_INGESTION_MODE=poll: usa scripts/start-telegram.bat, "
+                "no el webhook /webhooks/telegram. Desactiva telegram_inbound en n8n."
+            ),
+        )
+
     update = await _parse_update_body(request)
     agent = TelegramAgentService(db)
     try:

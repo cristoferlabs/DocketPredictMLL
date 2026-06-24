@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 
 from apps.api.services.worldcup_engine import ModelMarkets, name_match
-from apps.worker.ingest.odds_api import OddsApiClient
+from apps.worker.ingest.odds_api import OddsApiClient, WC_SPORT
 from apps.worker.ml.odds_math import (
     expected_value_fair,
     expected_value_raw,
@@ -39,14 +39,15 @@ class EvOpportunity:
 
 @dataclass
 class OutcomeEdge:
-    """Model vs mercado fair para un desenlace 1X2."""
+    """Modelo vs cuota de mercado (misma lógica que workflow n8n)."""
 
     selection: str
     model_prob: float
-    fair_odds: float
-    raw_odds: float | None
-    fair_implied: float
-    edge_pct: float
+    model_fair_odds: float  # 1 / prob modelo — cuota justa teórica
+    market_odds: float | None  # mediana casas (Odds API)
+    edge_pct: float  # EV ejecutable: (prob × cuota_mercado - 1) × 100
+    market_implied: float | None = None  # 1 / cuota mercado (sin devig)
+    divergence: float | None = None  # |model_prob - market_implied|
 
 
 @dataclass
@@ -101,7 +102,7 @@ def _find_wc_odds_in_db(db, team1: str, team2: str) -> dict | None:
 async def find_wc_odds_event(team1: str, team2: str, db=None) -> dict | None:
     client = OddsApiClient()
     try:
-        events = await client.get_soccer_odds(sports=["soccer_fifa_world_cup"])
+        events = await client.get_wc_odds()
         for ev in events:
             if _match_odds_event(ev, team1, team2):
                 return ev
@@ -116,37 +117,86 @@ async def find_wc_odds_event(team1: str, team2: str, db=None) -> dict | None:
     return None
 
 
+async def odds_unavailable_reason(db=None) -> str:
+    """Mensaje claro para Telegram cuando no hay cuotas de mercado."""
+    status = await OddsApiClient().check_status()
+    reason = status.get("reason", "")
+    if reason == "cuota_mensual_agotada":
+        rem = status.get("remaining", "0")
+        return f"cuota Odds API agotada ({rem} créditos restantes). Nueva clave en the-odds-api.com o espera reset mensual"
+    if reason == "clave_invalida":
+        return "ODDS_API_KEY inválida en .env"
+    if not status.get("ok") and status.get("detail"):
+        return f"Odds API: {status['detail'][:80]}"
+
+    if db is not None:
+        try:
+            rows = (
+                db.schema("ops")
+                .table("raw_ingestions")
+                .select("payload")
+                .eq("entity_type", "odds_event")
+                .order("ingested_at", desc=True)
+                .limit(50)
+                .execute()
+            )
+            wc_cached = sum(
+                1
+                for r in rows.data or []
+                if (r.get("payload") or {}).get("_sport_key") == WC_SPORT
+                or (r.get("payload") or {}).get("sport_key") == WC_SPORT
+            )
+            if wc_cached == 0 and (rows.data or []):
+                return "caché sin partidos WC (solo ligas europeas). Activa cuota y ejecuta ingest"
+        except Exception:
+            pass
+    return "sin cuotas WC para este partido (API o caché vacía)"
+
+
 def compute_market_context(
     model: ModelMarkets,
     team1: str,
     team2: str,
     odds_event: dict | None,
 ) -> MarketContext1X2:
-    """Cuotas fair y edge por desenlace (siempre, aunque no haya +EV)."""
+    """
+    Cuotas fair del modelo, línea de mercado (Odds API) y edge ejecutable.
+    Edge = prob_modelo × cuota_mercado − 1 (igual que /alta en n8n).
+    """
+    mapping = [
+        (team1, model.home_win, "home"),
+        ("Empate", model.draw, "draw"),
+        (team2, model.away_win, "away"),
+    ]
+
     if odds_event and _count_bookmakers(odds_event) >= 1:
         h2h_fair = fair_h2h_market(odds_event)
         outcomes: list[OutcomeEdge] = []
-        mapping = [
-            (team1, model.home_win, "home"),
-            ("Empate", model.draw, "draw"),
-            (team2, model.away_win, "away"),
-        ]
         for selection, model_prob, key in mapping:
-            if key not in h2h_fair or model_prob <= 0:
+            if model_prob <= 0:
                 continue
-            fm = h2h_fair[key]
-            fair_p = fm["fair_prob"]
+            model_fair = round(1 / model_prob, 2)
+            fm = h2h_fair.get(key, {})
+            market_o = fm.get("raw_odds") if fm else None
+            edge = (
+                round(expected_value_raw(model_prob, market_o) * 100, 1)
+                if market_o and market_o > 1
+                else 0.0
+            )
+            impl = market_implied_prob(market_o) if market_o and market_o > 1 else None
+            div = outcome_divergence(model_prob, market_o) if impl is not None else None
             outcomes.append(
                 OutcomeEdge(
                     selection=selection,
                     model_prob=model_prob,
-                    fair_odds=fm["fair_odds"],
-                    raw_odds=fm.get("raw_odds"),
-                    fair_implied=fair_p,
-                    edge_pct=round((model_prob - fair_p) * 100, 1),
+                    model_fair_odds=model_fair,
+                    market_odds=market_o if market_o and market_o > 1 else None,
+                    edge_pct=edge,
+                    market_implied=round(impl, 4) if impl is not None else None,
+                    divergence=round(div, 4) if div is not None else None,
                 )
             )
-        if outcomes:
+        if outcomes and any(o.market_odds for o in outcomes):
             return MarketContext1X2(
                 has_market=True,
                 outcomes=outcomes,
@@ -165,13 +215,75 @@ def compute_market_context(
             OutcomeEdge(
                 selection=selection,
                 model_prob=prob,
-                fair_odds=round(1 / prob, 2),
-                raw_odds=None,
-                fair_implied=prob,
+                model_fair_odds=round(1 / prob, 2),
+                market_odds=None,
                 edge_pct=0.0,
             )
         )
     return MarketContext1X2(has_market=False, outcomes=outcomes)
+
+
+def market_implied_prob(odds: float | None) -> float | None:
+    if odds and odds > 1:
+        return 1.0 / odds
+    return None
+
+
+def outcome_divergence(model_prob: float, market_odds: float | None) -> float | None:
+    impl = market_implied_prob(market_odds)
+    if impl is None:
+        return None
+    return abs(model_prob - impl)
+
+
+def max_market_divergence(market_ctx: MarketContext1X2 | None) -> float:
+    if not market_ctx or not market_ctx.has_market:
+        return 0.0
+    return max((o.divergence or 0.0 for o in market_ctx.outcomes), default=0.0)
+
+
+def check_market_outcome_allowed(
+    outcome: OutcomeEdge,
+    *,
+    max_divergence: float,
+    max_ev: float,
+) -> tuple[bool, list[str]]:
+    """Bloquea picks con desacople modelo-mercado o EV outlier."""
+    flags: list[str] = []
+    if outcome.divergence is not None and outcome.divergence > max_divergence:
+        flags.append(f"divergence>{max_divergence:.0%}")
+    ev = outcome.edge_pct / 100.0
+    if ev > max_ev:
+        flags.append(f"ev_market>{max_ev:.0%}")
+    if outcome.edge_pct <= 0:
+        flags.append("ev<=0")
+    return len(flags) == 0, flags
+
+
+def best_bettable_market_ev(
+    market_ctx: MarketContext1X2 | None,
+    *,
+    max_divergence: float,
+    max_ev: float,
+) -> float:
+    """Mayor EV entre desenlaces que pasan guardrails de mercado."""
+    if not market_ctx or not market_ctx.has_market:
+        return 0.0
+    allowed: list[float] = []
+    for o in market_ctx.outcomes:
+        ok, _ = check_market_outcome_allowed(
+            o, max_divergence=max_divergence, max_ev=max_ev
+        )
+        if ok:
+            allowed.append(o.edge_pct / 100.0)
+    return max(allowed, default=0.0)
+
+
+def best_market_ev(market_ctx: MarketContext1X2 | None) -> float:
+    """Mayor EV ejecutable (decimal) entre desenlaces 1X2."""
+    if not market_ctx or not market_ctx.has_market:
+        return 0.0
+    return max((o.edge_pct / 100.0 for o in market_ctx.outcomes), default=0.0)
 
 
 def _count_bookmakers(event: dict) -> int:

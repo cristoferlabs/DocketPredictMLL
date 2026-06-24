@@ -8,8 +8,14 @@ from typing import Any
 
 from supabase import Client
 
+from apps.api.services.injury_news import fetch_injury_report
 from apps.api.services.llm import get_llm_client
-from apps.api.services.odds_context import compute_ev_opportunities, compute_market_context, find_wc_odds_event
+from apps.api.services.odds_context import (
+    compute_ev_opportunities,
+    compute_market_context,
+    find_wc_odds_event,
+    odds_unavailable_reason,
+)
 from apps.api.services.telegram_client import TelegramClient
 from apps.api.services.worldcup_engine import (
     analyze_match,
@@ -241,6 +247,8 @@ class TelegramAgentService:
         ev_opps: list = []
         quality_note = ""
         market_ctx = None
+        dq_completeness = 100.0
+        hist_played = 20
 
         if analysis.model:
             m = analysis.model
@@ -271,14 +279,8 @@ class TelegramAgentService:
             )
             odds_flags = check_odds_event(odds_event, min_books=self.settings.min_odds_books)
             dq_label = f"OK ({dq.completeness_pct:.0f}%)" if dq.status == "ok" else f"{dq.status.upper()} ({dq.completeness_pct:.0f}%)"
-            quality_note = f"Datos: {dq_label}"
-
-            if not odds_event:
-                quality_note += "\nEV bloqueado: sin cuotas (Odds API o caché vacía)"
-            elif any(f.code == "no_odds" for f in odds_flags):
-                quality_note += "\nEV bloqueado: sin cuotas de mercado"
-            elif not can_publish_ev(dq, odds_flags):
-                quality_note += "\nEV bloqueado por calidad insuficiente"
+            quality_note = f"Datos {dq_label}"
+            dq_completeness = dq.completeness_pct
 
             if can_publish_ev(dq, odds_flags):
                 guard = check_ev_guardrails(self.db, self.settings)
@@ -311,6 +313,14 @@ class TelegramAgentService:
                     ev_opps = filtered[: self.settings.ev_max_daily_picks]
                 else:
                     quality_note += f"\nEV bloqueado: guardrail ({', '.join(guard.reasons)})"
+
+            if not odds_event or not market_ctx.has_market:
+                block = await odds_unavailable_reason(self.db)
+                quality_note += f"\nEV bloqueado: {block}"
+            elif not can_publish_ev(dq, odds_flags):
+                quality_note += "\nEV bloqueado por calidad insuficiente"
+            elif not ev_opps:
+                quality_note += "\nEV bloqueado: sin valor positivo"
 
         if not analysis.model:
             return f"⚽ {analysis.team1} vs {analysis.team2}\n\nSin modelo disponible."
@@ -355,12 +365,44 @@ class TelegramAgentService:
             ev_opps,
             odds_available=bool(odds_event),
             market_ctx=market_ctx,
+            injury_report=await fetch_injury_report(analysis.team1, analysis.team2),
+            data_quality_pct=dq_completeness,
+            hist_played=hist_played,
+            historical_accuracy=self._load_historical_accuracy(),
         )
+        if card.market_divergence_flag:
+            quality_note += (
+                f"\nEV bloqueado: filtro mercado (capa extrema, "
+                f"Δ {card.max_divergence*100:.0f}%)"
+            )
+            if card.diagnosis:
+                quality_note += f"\nDiagnóstico: {card.diagnosis.label}"
         return format_trading_message(
             card,
             quality_note=quality_note,
             alta_header=alta_only,
         )
+
+    def _load_historical_accuracy(self) -> float | None:
+        """Precisión histórica del modelo (1X2) desde métricas en DB."""
+        try:
+            rows = (
+                self.db.schema("ml")
+                .table("model_performance_metrics")
+                .select("accuracy, sample_size")
+                .eq("market_type", "1X2")
+                .order("computed_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            row = (rows.data or [None])[0]
+            if row and (row.get("sample_size") or 0) >= 20:
+                acc = row.get("accuracy")
+                if acc is not None:
+                    return float(acc)
+        except Exception:
+            pass
+        return None
 
     def _extract_teams(self, text: str) -> tuple[str, str]:
         t = text.strip()

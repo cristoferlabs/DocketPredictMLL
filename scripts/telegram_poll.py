@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sys
+from pathlib import Path
 
 import httpx
 
@@ -15,16 +16,61 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("telegram_poll")
 
 CONFLICT_EXIT_THRESHOLD = 3
+OFFSET_PATH = Path(__file__).resolve().parents[1] / ".telegram_poll.offset"
 _CONFLICT_MESSAGE = (
-    "Otro proceso (probablemente n8n Telegram Trigger) está usando este bot. "
-    "Cierra n8n o desactiva sus workflows Telegram, o usa TELEGRAM_INGESTION_MODE=n8n "
-    "y no ejecutes start-telegram.bat."
+    "Otro proceso está haciendo getUpdates con este bot (409 Conflict).\n"
+    "Desactiva TODOS los workflows n8n con Telegram Trigger, por ejemplo:\n"
+    "  • telegram_inbound\n"
+    "  • Bot Interactivo - Mundial 2026\n"
+    "  • RSL Engine - Flow 6: Bot Telegram Comandos\n"
+    "Solo puede haber UN consumidor por token.\n"
+    "Si prefieres n8n: TELEGRAM_INGESTION_MODE=n8n y NO ejecutes start-telegram.bat."
 )
+
+
+def _load_offset() -> int:
+    try:
+        return int(OFFSET_PATH.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def _save_offset(offset: int) -> None:
+    try:
+        OFFSET_PATH.write_text(str(offset), encoding="utf-8")
+    except OSError as exc:
+        logger.debug("no se pudo guardar offset: %s", exc)
 
 
 async def clear_webhook(token: str) -> None:
     async with httpx.AsyncClient(timeout=15) as client:
-        await client.get(f"https://api.telegram.org/bot{token}/deleteWebhook")
+        await client.get(
+            f"https://api.telegram.org/bot{token}/deleteWebhook",
+            params={"drop_pending_updates": True},
+        )
+
+
+async def probe_poll_exclusive(token: str) -> bool:
+    """Return True if no other process holds getUpdates."""
+    base = f"https://api.telegram.org/bot{token}"
+    poll_params = {
+        "offset": -1,
+        "timeout": 1,
+        "allowed_updates": '["message","callback_query"]',
+    }
+    async with httpx.AsyncClient(timeout=20) as client:
+        for attempt in range(5):
+            resp = await client.get(f"{base}/getUpdates", params=poll_params)
+            data = resp.json()
+            if data.get("ok"):
+                return True
+            if data.get("error_code") == 409:
+                logger.warning("Preflight 409 (%s/5): otro poller activo", attempt + 1)
+                await asyncio.sleep(4)
+                continue
+            logger.error("Preflight getUpdates error: %s", data)
+            return False
+    return False
 
 
 async def poll_loop() -> None:
@@ -40,13 +86,21 @@ async def poll_loop() -> None:
         logger.error("TELEGRAM_BOT_TOKEN no configurado en .env")
         sys.exit(1)
 
-    await clear_webhook(settings.telegram_bot_token)
+    token = settings.telegram_bot_token
+    await clear_webhook(token)
+    if not await probe_poll_exclusive(token):
+        logger.error(_CONFLICT_MESSAGE)
+        sys.exit(1)
+
     db = get_supabase()
     agent = TelegramAgentService(db)
-    offset = 0
-    base = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
+    offset = _load_offset()
+    base = f"https://api.telegram.org/bot{token}"
 
-    logger.info("Polling activo. Escribe /hoy al bot o al grupo. Ctrl+C para salir.")
+    if offset:
+        logger.info("Polling activo (offset=%s). Escribe /hoy al bot. Ctrl+C para salir.", offset)
+    else:
+        logger.info("Polling activo. Escribe /hoy al bot o al grupo. Ctrl+C para salir.")
 
     conflict_streak = 0
 
@@ -81,6 +135,7 @@ async def poll_loop() -> None:
 
                 for upd in data.get("result", []):
                     offset = upd["update_id"] + 1
+                    _save_offset(offset)
                     try:
                         result = await agent.handle_update(upd)
                         if result.get("duplicate"):

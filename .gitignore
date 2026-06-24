@@ -69,6 +69,7 @@ data/
 # Logs y locks locales
 *.log
 .telegram_poll.lock
+.telegram_poll.offset
 
 # Supabase CLI (metadatos locales, no migraciones)
 supabase/.temp/

@@ -18,7 +18,7 @@ def record_wc_market_snapshots(
     match_key = f"{team_home}|{team_away}"
     saved = 0
     for o in market_ctx.outcomes:
-        raw = o.raw_odds
+        raw = o.market_odds
         if not raw or raw <= 1:
             continue
         save_odds_snapshot(
@@ -29,7 +29,7 @@ def record_wc_market_snapshots(
             market="1X2",
             selection=o.selection,
             odds_decimal=raw,
-            fair_odds=o.fair_odds,
+            fair_odds=o.model_fair_odds,
             snapshot_type="market",
         )
         saved += 1

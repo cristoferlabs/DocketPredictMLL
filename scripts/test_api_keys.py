@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from apps.api.services.injury_news import fetch_injury_report
 from apps.shared.config import get_settings
 from apps.worker.ingest.api_football import ApiFootballClient
 from apps.worker.ingest.football_data import FootballDataClient
@@ -51,13 +52,13 @@ async def test_odds_api() -> dict:
         return {"ok": True, "detail": f"Eventos WC con cuotas: {n}"}
     except Exception as exc:
         msg = str(exc)
-        if "quota" in msg.lower() or "Usage quota" in msg:
+        if "quota" in msg.lower() or "Usage quota" in msg or "OUT_OF_USAGE" in msg:
             return {
                 "ok": False,
-                "detail": "Cuota mensual agotada en The Odds API. Espera reset o usa otra clave/plan.",
+                "detail": "Cuota mensual agotada (0 créditos). Nueva clave en the-odds-api.com o espera reset.",
             }
         if "401" in msg:
-            return {"ok": False, "detail": "Clave invalida o cuota agotada (401). Revisa dashboard the-odds-api.com"}
+            return {"ok": False, "detail": "401 — clave inválida o cuota agotada. Revisa the-odds-api.com"}
         return {"ok": False, "detail": msg}
 
 
@@ -91,6 +92,22 @@ async def test_sportmonks() -> dict:
         return {"ok": False, "detail": str(exc)}
 
 
+async def test_injury_news() -> dict:
+    s = get_settings()
+    if not s.gnews_api_key and not s.newsapi_key:
+        return {"ok": False, "detail": "GNEWS_API_KEY y NEWSAPI_KEY no configuradas"}
+    report = await fetch_injury_report("Brazil", "Scotland")
+    sources = []
+    if s.gnews_api_key:
+        sources.append("GNews" + (" OK" if report.gnews_ok else " fallo"))
+    if s.newsapi_key:
+        sources.append("NewsAPI" + (" OK" if report.newsapi_ok else " fallo"))
+    return {
+        "ok": report.gnews_ok or report.newsapi_ok,
+        "detail": f"{'; '.join(sources)} | artículos lesión: {len(report.articles)}",
+    }
+
+
 async def main() -> None:
     s = get_settings()
     print("=== Test de claves API (AGENTE) ===\n")
@@ -100,6 +117,8 @@ async def main() -> None:
         ("ODDS_API_KEY", s.odds_api_key),
         ("API_FOOTBALL_KEY", s.api_football_key),
         ("SPORTMONKS_KEY", s.sportmonks_key),
+        ("GNEWS_API_KEY", s.gnews_api_key),
+        ("NEWSAPI_KEY", s.newsapi_key),
     ]:
         status = "configurada" if val else "FALTA"
         print(f"  {name}: {status} {_mask(val) if val else ''}")
@@ -110,6 +129,7 @@ async def main() -> None:
         ("Odds API (cuotas EV)", test_odds_api()),
         ("API-Football (stats/xG)", test_api_football()),
         ("SportMonks (opcional)", test_sportmonks()),
+        ("Noticias lesiones (GNews+NewsAPI)", test_injury_news()),
     ]
     for label, coro in tests:
         result = await coro
@@ -123,6 +143,8 @@ async def main() -> None:
     print("  ODDS_API_KEY      -> EV fair, /alta, snapshots CLV")
     print("  API_FOOTBALL_KEY  -> worker ingest ligas + stats fixture (plan free: 2022-2024)")
     print("  SPORTMONKS_KEY    -> worker ingest opcional")
+    print("  GNEWS_API_KEY     -> alertas lesiones/bajas en análisis Telegram")
+    print("  NEWSAPI_KEY       -> alertas lesiones/bajas en análisis Telegram")
     print()
     print("Ingesta manual: POST http://localhost:8000/jobs/ingest-fixtures")
     print('  body: {"competition_code":"WC","sources":["football-data","odds-api"]}')

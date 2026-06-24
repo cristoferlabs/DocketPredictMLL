@@ -1,6 +1,6 @@
 """Tests for trading card formatting."""
 
-from apps.api.services.odds_context import EvOpportunity
+from apps.api.services.odds_context import EvOpportunity, compute_market_context
 from apps.api.services.trading_card import (
     build_trading_card,
     format_trading_message,
@@ -53,22 +53,131 @@ def test_build_trading_card_with_ev():
         raw_odds=2.2,
         metadata={"kelly_stake": 0.01},
     )
-    card = build_trading_card(_analysis(), [opp], odds_available=True)
+    m = _analysis().model
+    market = compute_market_context(m, "Scotland", "Brazil", {
+        "home_team": "Scotland",
+        "away_team": "Brazil",
+        "bookmakers": [{
+            "key": "b1",
+            "markets": [{"key": "h2h", "outcomes": [
+                {"name": "Scotland", "price": 4.5},
+                {"name": "Draw", "price": 3.5},
+                {"name": "Brazil", "price": 2.3},
+            ]}],
+        }],
+    })
+    card = build_trading_card(_analysis(), [opp], odds_available=True, market_ctx=market)
     assert card.light == "verde"
     assert card.pick.selection == "Brazil"
     msg = format_trading_message(card)
     assert "PICK PRINCIPAL" in msg
-    assert "Brazil" in msg
-    assert "Cuotas fair" in msg
-    assert "Confianza:" in msg
-    assert "/100" in msg
+    assert "Cuotas mercado" in msg
+    assert "Edge" in msg
+    assert "Rating:" in msg
+    assert "/5" in msg
 
 
 def test_no_bet_red_light():
     card = build_trading_card(_analysis(), [], odds_available=True)
     assert card.no_bet is True
+    assert card.pick_rating == 1
     msg = format_trading_message(card)
     assert "NO APOSTAR" in msg
     assert "Cuotas fair" in msg
+    assert "Rating:" in msg
     assert "Stake: 0%" in msg
-    assert "Confianza:" in msg
+
+
+def _morocco_haiti_odds() -> dict:
+    return {
+        "home_team": "Morocco",
+        "away_team": "Haiti",
+        "bookmakers": [{
+            "key": "b1",
+            "markets": [{"key": "h2h", "outcomes": [
+                {"name": "Morocco", "price": 1.19},
+                {"name": "Draw", "price": 7.50},
+                {"name": "Haiti", "price": 17.00},
+            ]}],
+        }],
+    }
+
+
+def test_morocco_haiti_extreme_divergence_blocks_bet():
+    model = ModelMarkets(
+        home_win=0.374,
+        draw=0.284,
+        away_win=0.342,
+        over_25=0.371,
+        under_25=0.629,
+        btts_yes=0.380,
+        btts_no=0.620,
+        lambda_home=1.3,
+        lambda_away=1.1,
+        confidence="medium",
+    )
+    analysis = MatchAnalysis(
+        team1="Morocco",
+        team2="Haiti",
+        fecha="2026-06-24",
+        ronda="Matchday 14",
+        grupo="",
+        estadio="",
+        model=model,
+    )
+    market = compute_market_context(model, "Morocco", "Haiti", _morocco_haiti_odds())
+    card = build_trading_card(analysis, [], odds_available=True, market_ctx=market)
+    assert card.market_divergence_flag is True
+    assert card.no_bet is True
+    assert card.decision_layer == "extreme"
+    msg = format_trading_message(card)
+    assert "NO APOSTAR" in msg
+    assert "FILTRO MERCADO" in msg
+    assert "PRIMARY:" in msg
+    assert "Edge post-ajuste: IGNORADO" in msg
+    assert "Modelo ajustado" not in msg
+    assert "También:" not in msg
+
+
+def test_scotland_ev_outlier_blocks_bet():
+    model = ModelMarkets(
+        home_win=0.235,
+        draw=0.262,
+        away_win=0.503,
+        over_25=0.462,
+        under_25=0.538,
+        btts_yes=0.469,
+        btts_no=0.531,
+        lambda_home=1.1,
+        lambda_away=1.4,
+        confidence="medium",
+    )
+    analysis = MatchAnalysis(
+        team1="Scotland",
+        team2="Brazil",
+        fecha="2026-06-24",
+        ronda="Matchday 14",
+        grupo="",
+        estadio="",
+        model=model,
+    )
+    odds = {
+        "home_team": "Scotland",
+        "away_team": "Brazil",
+        "bookmakers": [{
+            "key": "b1",
+            "markets": [{"key": "h2h", "outcomes": [
+                {"name": "Scotland", "price": 9.50},
+                {"name": "Draw", "price": 5.60},
+                {"name": "Brazil", "price": 1.32},
+            ]}],
+        }],
+    }
+    market = compute_market_context(model, "Scotland", "Brazil", odds)
+    scot = next(o for o in market.outcomes if o.selection == "Scotland")
+    assert scot.edge_pct > 100
+    card = build_trading_card(analysis, [], odds_available=True, market_ctx=market)
+    assert card.no_bet is True
+    assert card.pick.selection != "Scotland" or card.no_bet
+    msg = format_trading_message(card)
+    assert "NO APOSTAR" in msg
