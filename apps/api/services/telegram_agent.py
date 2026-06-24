@@ -9,7 +9,7 @@ from typing import Any
 from supabase import Client
 
 from apps.api.services.llm import get_llm_client
-from apps.api.services.odds_context import compute_ev_opportunities, find_wc_odds_event
+from apps.api.services.odds_context import compute_ev_opportunities, compute_market_context, find_wc_odds_event
 from apps.api.services.telegram_client import TelegramClient
 from apps.api.services.worldcup_engine import (
     analyze_match,
@@ -21,14 +21,19 @@ from apps.api.services.worldcup_engine import (
 from apps.shared.config import get_settings
 from apps.worker.ingest.football_data import FootballDataClient
 from apps.worker.ingest.worldcup_json import fetch_all_worldcup_archives
-from apps.worker.ml.clv import record_pick_snapshot
+from apps.worker.ml.clv import record_pick_snapshot, record_wc_market_snapshots
 from apps.worker.ml.data_quality import can_publish_ev, check_match_features, check_odds_event
 from apps.worker.ml.ev_anomaly import evaluate_pick, log_anomaly_to_db
 from apps.worker.ml.guardrails import check_ev_guardrails
 from apps.worker.ml.model_loader import load_calibration_factors_from_db
 from apps.worker.ml.wc_audit import audit_upcoming_matches
 from apps.worker.ml.wc_predictions import save_wc_prediction
-from apps.api.services.trading_card import build_trading_card, format_trading_message
+from apps.api.services.trading_card import (
+    build_trading_card,
+    build_trading_card_from_dict,
+    format_trading_message,
+)
+from apps.worker.tasks.update_elo import get_wc_elo_ratings
 
 logger = logging.getLogger(__name__)
 
@@ -232,12 +237,23 @@ class TelegramAgentService:
 
         analysis = analyze_match(match, d18, d22, fd_matches, elo_ratings)
         self._save_model_prediction(analysis)
-        odds_event = await find_wc_odds_event(analysis.team1, analysis.team2)
+        odds_event = await find_wc_odds_event(analysis.team1, analysis.team2, db=self.db)
         ev_opps: list = []
         quality_note = ""
+        market_ctx = None
 
         if analysis.model:
             m = analysis.model
+            market_ctx = compute_market_context(m, analysis.team1, analysis.team2, odds_event)
+            if market_ctx.has_market:
+                saved = record_wc_market_snapshots(
+                    self.db,
+                    team_home=analysis.team1,
+                    team_away=analysis.team2,
+                    market_ctx=market_ctx,
+                )
+                if saved:
+                    logger.debug("odds_snapshots market: %s filas", saved)
             hist_played = (
                 (analysis.historico.get(analysis.team1, {}).get("wc2022", {}).get("played", 0) or 0)
                 + (analysis.historico.get(analysis.team2, {}).get("wc2022", {}).get("played", 0) or 0)
@@ -254,7 +270,15 @@ class TelegramAgentService:
                 hist_played=hist_played,
             )
             odds_flags = check_odds_event(odds_event, min_books=self.settings.min_odds_books)
-            quality_note = f"datos: {dq.status} ({dq.completeness_pct}%)"
+            dq_label = f"OK ({dq.completeness_pct:.0f}%)" if dq.status == "ok" else f"{dq.status.upper()} ({dq.completeness_pct:.0f}%)"
+            quality_note = f"Datos: {dq_label}"
+
+            if not odds_event:
+                quality_note += "\nEV bloqueado: sin cuotas (Odds API o caché vacía)"
+            elif any(f.code == "no_odds" for f in odds_flags):
+                quality_note += "\nEV bloqueado: sin cuotas de mercado"
+            elif not can_publish_ev(dq, odds_flags):
+                quality_note += "\nEV bloqueado por calidad insuficiente"
 
             if can_publish_ev(dq, odds_flags):
                 guard = check_ev_guardrails(self.db, self.settings)
@@ -286,9 +310,7 @@ class TelegramAgentService:
                         filtered.append(o)
                     ev_opps = filtered[: self.settings.ev_max_daily_picks]
                 else:
-                    quality_note += f" | guardrail: {', '.join(guard.reasons)}"
-            else:
-                quality_note += " | EV bloqueado por calidad insuficiente"
+                    quality_note += f"\nEV bloqueado: guardrail ({', '.join(guard.reasons)})"
 
         if not analysis.model:
             return f"⚽ {analysis.team1} vs {analysis.team2}\n\nSin modelo disponible."
@@ -329,7 +351,10 @@ class TelegramAgentService:
                 )
 
         card = build_trading_card(
-            analysis, ev_opps, odds_available=bool(odds_event)
+            analysis,
+            ev_opps,
+            odds_available=bool(odds_event),
+            market_ctx=market_ctx,
         )
         return format_trading_message(
             card,
@@ -406,43 +431,13 @@ class TelegramAgentService:
         }
 
     async def _format_with_llm(self, user_text: str, data: dict) -> str:
-        payload = json.dumps({"consulta": user_text, "datos": data}, ensure_ascii=False)
-        if self.settings.llm_provider != "template":
-            reply = await self.llm.chat(TELEGRAM_SYSTEM, payload)
-            if reply:
-                return reply
-        return self._template_analysis(data)
+        """Siempre formato trading (sin LLM) para decisiones de apuesta consistentes."""
+        card = build_trading_card_from_dict(data)
+        return format_trading_message(card)
 
     def _template_analysis(self, data: dict) -> str:
-        m = data.get("modelo", {})
-        x12 = m.get("1x2", {})
-        lines = [
-            f"⚽ {data.get('partido')}",
-            f"📅 {data.get('fecha')} | {data.get('ronda')}",
-            "─────────────────",
-            "📐 MODELO (Poisson + ELO)",
-        ]
-        for k, v in x12.items():
-            if v is not None:
-                lines.append(f"  {k}: {float(v)*100:.1f}%")
-        if m.get("over_25"):
-            lines.append(f"  Over 2.5: {float(m['over_25'])*100:.1f}%")
-        if m.get("btts_si"):
-            lines.append(f"  BTTS Sí: {float(m['btts_si'])*100:.1f}%")
-        evs = data.get("oportunidades_ev", [])
-        if evs:
-            lines.append("─────────────────")
-            lines.append("💎 Valor vs mercado (EV fair)")
-            for o in evs[:3]:
-                vig = o.get("vig_pct", 0)
-                lines.append(
-                    f"  {o['mercado']} {o['seleccion']}: "
-                    f"EV fair {o['ev_fair']*100:+.1f}% "
-                    f"(bruto {o.get('ev_bruto', 0)*100:+.1f}%, vig {vig:.1f}%) "
-                    f"[{o['prioridad']}]"
-                )
-        lines.append("\n⚠️ Predicciones probabilísticas, no garantías.")
-        return "\n".join(lines)
+        card = build_trading_card_from_dict(data)
+        return format_trading_message(card)
 
     async def _stats_message(self) -> str:
         """Model calibration and data quality summary."""

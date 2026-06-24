@@ -5,6 +5,37 @@ from __future__ import annotations
 from apps.worker.ml.wc_predictions import compute_clv, save_odds_snapshot
 
 
+def record_wc_market_snapshots(
+    db,
+    *,
+    team_home: str,
+    team_away: str,
+    market_ctx,
+) -> int:
+    """Persist 1X2 market lines for CLV (every analysis with cuotas)."""
+    if not market_ctx or not getattr(market_ctx, "has_market", False):
+        return 0
+    match_key = f"{team_home}|{team_away}"
+    saved = 0
+    for o in market_ctx.outcomes:
+        raw = o.raw_odds
+        if not raw or raw <= 1:
+            continue
+        save_odds_snapshot(
+            db,
+            match_key=match_key,
+            team_home=team_home,
+            team_away=team_away,
+            market="1X2",
+            selection=o.selection,
+            odds_decimal=raw,
+            fair_odds=o.fair_odds,
+            snapshot_type="market",
+        )
+        saved += 1
+    return saved
+
+
 def record_pick_snapshot(
     db,
     *,

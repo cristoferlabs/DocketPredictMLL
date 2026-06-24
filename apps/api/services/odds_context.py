@@ -37,6 +37,25 @@ class EvOpportunity:
     metadata: dict = field(default_factory=dict)
 
 
+@dataclass
+class OutcomeEdge:
+    """Model vs mercado fair para un desenlace 1X2."""
+
+    selection: str
+    model_prob: float
+    fair_odds: float
+    raw_odds: float | None
+    fair_implied: float
+    edge_pct: float
+
+
+@dataclass
+class MarketContext1X2:
+    has_market: bool
+    outcomes: list[OutcomeEdge]
+    n_books: int = 0
+
+
 def expected_value(model_prob: float, odds: float) -> float:
     """Backward-compatible alias — returns fair-style EV on given odds."""
     return expected_value_fair(model_prob, odds)
@@ -50,17 +69,109 @@ def _priority_fair(ev_fair: float, edge_fair: float) -> str:
     return "low"
 
 
-async def find_wc_odds_event(team1: str, team2: str) -> dict | None:
-    client = OddsApiClient()
-    events = await client.get_soccer_odds(sports=["soccer_fifa_world_cup"])
-    for ev in events:
-        home = ev.get("home_team", "")
-        away = ev.get("away_team", "")
-        if (name_match(home, team1) and name_match(away, team2)) or (
-            name_match(home, team2) and name_match(away, team1)
-        ):
-            return ev
+def _match_odds_event(ev: dict, team1: str, team2: str) -> bool:
+    home = ev.get("home_team", "")
+    away = ev.get("away_team", "")
+    return (name_match(home, team1) and name_match(away, team2)) or (
+        name_match(home, team2) and name_match(away, team1)
+    )
+
+
+def _find_wc_odds_in_db(db, team1: str, team2: str) -> dict | None:
+    """Fallback: últimas cuotas ingeridas en ops.raw_ingestions."""
+    try:
+        rows = (
+            db.schema("ops")
+            .table("raw_ingestions")
+            .select("payload")
+            .eq("entity_type", "odds_event")
+            .order("ingested_at", desc=True)
+            .limit(300)
+            .execute()
+        )
+        for row in rows.data or []:
+            ev = row.get("payload") or {}
+            if isinstance(ev, dict) and _match_odds_event(ev, team1, team2):
+                return ev
+    except Exception as exc:
+        logger.debug("odds cache db: %s", exc)
     return None
+
+
+async def find_wc_odds_event(team1: str, team2: str, db=None) -> dict | None:
+    client = OddsApiClient()
+    try:
+        events = await client.get_soccer_odds(sports=["soccer_fifa_world_cup"])
+        for ev in events:
+            if _match_odds_event(ev, team1, team2):
+                return ev
+    except Exception as exc:
+        logger.warning("Odds API live: %s", exc)
+
+    if db is not None:
+        cached = _find_wc_odds_in_db(db, team1, team2)
+        if cached:
+            logger.info("Cuotas WC desde caché DB: %s vs %s", team1, team2)
+            return cached
+    return None
+
+
+def compute_market_context(
+    model: ModelMarkets,
+    team1: str,
+    team2: str,
+    odds_event: dict | None,
+) -> MarketContext1X2:
+    """Cuotas fair y edge por desenlace (siempre, aunque no haya +EV)."""
+    if odds_event and _count_bookmakers(odds_event) >= 1:
+        h2h_fair = fair_h2h_market(odds_event)
+        outcomes: list[OutcomeEdge] = []
+        mapping = [
+            (team1, model.home_win, "home"),
+            ("Empate", model.draw, "draw"),
+            (team2, model.away_win, "away"),
+        ]
+        for selection, model_prob, key in mapping:
+            if key not in h2h_fair or model_prob <= 0:
+                continue
+            fm = h2h_fair[key]
+            fair_p = fm["fair_prob"]
+            outcomes.append(
+                OutcomeEdge(
+                    selection=selection,
+                    model_prob=model_prob,
+                    fair_odds=fm["fair_odds"],
+                    raw_odds=fm.get("raw_odds"),
+                    fair_implied=fair_p,
+                    edge_pct=round((model_prob - fair_p) * 100, 1),
+                )
+            )
+        if outcomes:
+            return MarketContext1X2(
+                has_market=True,
+                outcomes=outcomes,
+                n_books=_count_bookmakers(odds_event),
+            )
+
+    outcomes = []
+    for selection, prob in [
+        (team1, model.home_win),
+        ("Empate", model.draw),
+        (team2, model.away_win),
+    ]:
+        if prob <= 0:
+            continue
+        outcomes.append(
+            OutcomeEdge(
+                selection=selection,
+                model_prob=prob,
+                fair_odds=round(1 / prob, 2),
+                raw_odds=None,
+                fair_implied=prob,
+                edge_pct=0.0,
+            )
+        )
+    return MarketContext1X2(has_market=False, outcomes=outcomes)
 
 
 def _count_bookmakers(event: dict) -> int:

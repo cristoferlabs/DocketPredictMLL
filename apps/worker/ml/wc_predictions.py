@@ -81,7 +81,7 @@ def save_odds_snapshot(
             }
         ).execute()
     except Exception as exc:
-        logger.debug("odds_snapshot: %s", exc)
+        logger.warning("odds_snapshot: %s", exc)
 
 
 def compute_clv(pick_odds: float, closing_odds: float) -> float:

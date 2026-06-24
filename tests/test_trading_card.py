@@ -59,8 +59,9 @@ def test_build_trading_card_with_ev():
     msg = format_trading_message(card)
     assert "PICK PRINCIPAL" in msg
     assert "Brazil" in msg
-    assert "EV:" in msg
-    assert "🚦" in msg
+    assert "Cuotas fair" in msg
+    assert "Confianza:" in msg
+    assert "/100" in msg
 
 
 def test_no_bet_red_light():
@@ -68,4 +69,6 @@ def test_no_bet_red_light():
     assert card.no_bet is True
     msg = format_trading_message(card)
     assert "NO APOSTAR" in msg
-    assert "🔴" in msg
+    assert "Cuotas fair" in msg
+    assert "Stake: 0%" in msg
+    assert "Confianza:" in msg
