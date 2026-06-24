@@ -4,7 +4,22 @@ Motor de predicciones probabilísticas de fútbol con ensemble **Poisson + ELO +
 
 Repositorio: [github.com/cristoferlabs/DocketPredictMLL](https://github.com/cristoferlabs/DocketPredictMLL)
 
-## Características
+## Tabla de contenidos
+
+- [Características](#características)
+- [Arquitectura](#arquitectura)
+- [Requisitos](#requisitos)
+- [Configuración](#configuración)
+- [Ejecución local](#ejecución-local)
+- [Telegram](#telegram)
+- [Workflows n8n](#workflows-n8n)
+- [Endpoints principales](#endpoints-principales)
+- [Loop de auto-mejora](#loop-de-auto-mejora)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Despliegue](#despliegue-railway)
+- [Tests](#tests)
+- [Seguridad](#seguridad)
+- [Disclaimer](#disclaimer)
 
 - Ensemble multi-modelo con pesos adaptativos por liga y mercado
 - Ingesta de fixtures, cuotas y resultados desde múltiples fuentes deportivas
@@ -189,6 +204,13 @@ Crear tres servicios según `railway.json`:
 ```bash
 pytest
 ```
+
+## Seguridad
+
+- **No subas `.env` al repositorio.** Solo comparte `.env.example` con placeholders.
+- El `.gitignore` excluye `.env`, variantes locales (`.env.local`, `.env.production`, etc.), claves privadas y credenciales JSON.
+- Usa `SUPABASE_SERVICE_ROLE_KEY` únicamente en backend (API y worker), nunca en el cliente.
+- Rota tokens de Telegram, WhatsApp y APIs de datos si sospechas exposición.
 
 ## Disclaimer
 

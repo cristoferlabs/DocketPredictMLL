@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agente-betting-engine"
+name = "docket-predict-mll"
 version = "0.1.0"
-description = "Self-improving probabilistic betting engine for football predictions"
+description = "DocketPredictMLL — motor probabilístico de predicciones de fútbol con auto-mejora"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
