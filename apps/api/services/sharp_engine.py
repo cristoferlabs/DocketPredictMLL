@@ -12,17 +12,37 @@ Consume MODEL + MARKET vía bet_pipeline; no mezcla con PARLAY.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from apps.api.services.bet_decision_tree import BetDecisionResult
 from apps.api.services.bet_pipeline import BetPipelineResult, run_bet_pipeline
 from apps.api.services.injury_news import InjuryReport
 from apps.api.services.confidence_score import compute_mds, sharp_composite_passes
+from apps.api.services.sharp_portfolio import portfolio_tier_for_confidence, sharp_rank_score
 from apps.api.services.market_dominance import MarketDominanceResult
 from apps.api.services.odds_context import EvOpportunity, MarketContext1X2
 from apps.api.services.risk_stake import allocate_sharp_stake
 from apps.api.services.trust_arbitration import TrustArbitration
 from apps.api.services.worldcup_engine import MatchAnalysis
+from apps.api.services.ev_policy import ev_for_decision
 from apps.shared.config import Settings, get_settings
+from apps.worker.ml.model_learning import LearningState, load_learning_state
+
+SharpPhase = Literal["cold", "warm", "mature"]
+
+_SHARP_REGIME_MAX_DIV_PP: dict[str, float] = {
+    "aligned": 12.0,
+    "moderate": 15.0,
+    "high": 18.0,
+    "extreme": 20.0,
+}
+
+
+def _sharp_max_div_pp(cal_meta: dict, settings: Settings) -> float:
+    regime = cal_meta.get("alpha_regime")
+    if regime in _SHARP_REGIME_MAX_DIV_PP:
+        return _SHARP_REGIME_MAX_DIV_PP[regime]
+    return settings.sharp_max_divergence_pp
 
 
 @dataclass
@@ -35,6 +55,8 @@ class SharpBetResult:
     sharp_reason: str
     decision: BetDecisionResult
     stake_pct: float
+    portfolio_tier: str = "X"
+    rank_score: float = 0.0
 
 
 def compute_mds(
@@ -47,6 +69,102 @@ def compute_mds(
     return _compute_mds(dominance, trust)
 
 
+def resolve_sharp_phase(n_picks: int, settings: Settings) -> SharpPhase:
+    if n_picks < settings.sharp_phase_cold_n:
+        return "cold"
+    if n_picks < settings.sharp_phase_mature_n:
+        return "warm"
+    return "mature"
+
+
+def _calibration_meta(pipeline: BetPipelineResult) -> dict:
+    blend = pipeline.model.markets.blend_meta or {}
+    return dict(blend.get("calibration") or {})
+
+
+def _apply_sharp_phase_gate(
+    dec: BetDecisionResult,
+    *,
+    mds: int,
+    phase: SharpPhase,
+    state: LearningState,
+    settings: Settings,
+    cal_meta: dict,
+) -> BetDecisionResult:
+    """Fases cold/warm/mature — antes del pass SHARP final."""
+    div_cal = float(cal_meta.get("divergence_cal_pp") or 0.0)
+    alpha = float(cal_meta.get("alpha") or 0.0)
+    regime = str(cal_meta.get("alpha_regime") or "moderate")
+    shrink = bool(cal_meta.get("shrink_applied"))
+    cal_active = alpha > 0 or shrink
+    max_div_regime = _sharp_max_div_pp(cal_meta, settings)
+    path = list(dec.tree_path)
+    path.append(
+        f"sharp_phase:{phase}|regime={regime}|α={alpha:.2f}|Δcal={div_cal:.0f}pp"
+    )
+
+    if dec.soft_action in ("NO_BET", "WATCH"):
+        return replace(dec, tree_path=path)
+
+    soft = dec.soft_action
+    reason = dec.blocked_reason
+
+    if phase == "cold":
+        max_div = max_div_regime
+        if mds < settings.sharp_cold_weak_mds_min:
+            soft = "NO_BET"
+            reason = f"cold: MDS {mds} < {settings.sharp_cold_weak_mds_min}"
+        elif mds < settings.sharp_cold_strong_mds:
+            if soft == "STRONG_BET":
+                soft = "WEAK_BET"
+                reason = f"cold: MDS {mds} < {settings.sharp_cold_strong_mds}"
+        elif soft == "STRONG_BET":
+            if div_cal >= max_div and div_cal > 15.0:
+                soft = "WEAK_BET"
+                reason = f"cold: Δ_cal {div_cal:.0f}pp ≥ {max_div:.0f}pp"
+            elif settings.sharp_require_shrink_active and not cal_active:
+                soft = "WEAK_BET"
+                reason = "cold: calibración inactiva (α=0 sin shrink)"
+        if soft == "STRONG_BET" and div_cal > 20.0:
+            soft = "WEAK_BET"
+            reason = f"cold: Δ_cal {div_cal:.0f}pp > 20pp downgrade"
+
+    elif phase == "warm":
+        if soft == "STRONG_BET" and (mds < 65 or div_cal >= max_div_regime):
+            soft = "WEAK_BET"
+            reason = f"warm: MDS {mds} o Δ_cal {div_cal:.0f}pp (regime≤{max_div_regime:.0f})"
+        clv = state.rolling_clv
+        if soft == "STRONG_BET" and clv is not None and clv < 0:
+            soft = "WEAK_BET"
+            reason = f"warm: rolling CLV {clv:.3f} < 0"
+            path.append("clv_obs:negative")
+
+    else:  # mature
+        max_div = min(max_div_regime, settings.sharp_mature_max_divergence_pp)
+        clv = state.rolling_clv
+        if soft == "STRONG_BET":
+            if clv is not None and clv <= 0:
+                pes = dec.ev_band.pessimistic if dec.ev_band else 0.0
+                soft = "WEAK_BET" if pes > 0 else "NO_BET"
+                reason = f"mature: CLV gate fail ({clv:.3f})"
+            elif mds < 65 or div_cal >= max_div:
+                soft = "WEAK_BET"
+                reason = f"mature: MDS {mds} o Δ_cal {div_cal:.0f}pp"
+
+    if soft != dec.soft_action:
+        path.append(f"phase_gate:{dec.soft_action}→{soft}")
+    action = soft if soft in ("STRONG_BET", "WEAK_BET", "WATCH", "NO_BET") else dec.action
+    no_bet = soft in ("NO_BET", "WATCH")
+    return replace(
+        dec,
+        soft_action=soft,  # type: ignore[arg-type]
+        action=action,  # type: ignore[arg-type]
+        no_bet=no_bet,
+        blocked_reason=reason,
+        tree_path=path,
+    )
+
+
 def apply_sharp_gate(
     pipeline: BetPipelineResult,
     *,
@@ -57,11 +175,40 @@ def apply_sharp_gate(
     dom = pipeline.market.dominance
     dec = pipeline.decision
     mds = compute_mds(dom, dec.trust)
-    ev_final = dec.ev_band.base if dec.ev_band else dec.ev_market
+    cal_meta = _calibration_meta(pipeline)
+    regime = str(cal_meta.get("alpha_regime") or "moderate")
+    ev_raw = dec.ev_band.base if dec.ev_band else dec.ev_market
+    ev_final = ev_for_decision(ev_fair=ev_raw, alpha_regime=regime)
     conf = dec.confidence_score / 100.0
+    tier = portfolio_tier_for_confidence(dec.confidence_score, settings=settings)
+    rank_score = sharp_rank_score(
+        ev_fair=ev_final,
+        confidence=float(dec.confidence_score),
+        mds=float(mds),
+    )
 
     min_ev = settings.ev_min_edge_fair
     min_composite = settings.sharp_min_composite
+    portfolio_mode = getattr(settings, "sharp_mode", "portfolio") == "portfolio"
+
+    learning = load_learning_state()
+    phase = resolve_sharp_phase(learning.rolling_clv_n, settings)
+    dec = _apply_sharp_phase_gate(
+        dec,
+        mds=mds,
+        phase=phase,
+        state=learning,
+        settings=settings,
+        cal_meta=cal_meta,
+    )
+    if cal_meta:
+        analysis = pipeline.model.analysis
+        if analysis.model is not None:
+            bm = dict(analysis.model.blend_meta or {})
+            cal = dict(bm.get("calibration") or {})
+            cal["sharp_phase"] = phase
+            bm["calibration"] = cal
+            analysis.model.blend_meta = bm
 
     if dec.soft_action == "WATCH":
         gated = _apply_watch_gate(dec, mds=mds, ev_final=ev_final, settings=settings)
@@ -115,10 +262,38 @@ def apply_sharp_gate(
                 sharp_reason="WATCH — composite bajo umbral SHARP",
                 decision=gated,
                 stake_pct=gated.stake_pct,
+                portfolio_tier=tier,
+                rank_score=rank_score,
             )
+        reason = (
+            f"composite {dec.confidence_score} < {settings.sharp_portfolio_min_composite}"
+            if portfolio_mode
+            else f"composite {dec.confidence_score} < {min_composite}"
+        )
+        gated = _gate_no_bet(dec, reason)
+        return SharpBetResult(
+            pipeline=pipeline,
+            mds=mds,
+            ev_final=ev_final,
+            confidence_norm=conf,
+            sharp_allowed=False,
+            sharp_reason=gated.blocked_reason or "",
+            decision=gated,
+            stake_pct=0.0,
+            portfolio_tier=tier,
+            rank_score=rank_score,
+        )
+
+    # Portfolio: tier A/B + EV → single permitido; tier C → solo ranking/parlay pool
+    single_ok = tier == "A" or (
+        portfolio_mode and tier == "B" and ev_final >= min_ev
+    ) or (
+        not portfolio_mode and dec.confidence_score >= min_composite
+    )
+    if not single_ok and dec.soft_action not in ("WATCH",):
         gated = _gate_no_bet(
             dec,
-            f"composite {dec.confidence_score} < {min_composite}",
+            f"tier {tier} — ranking pool (sin single; usable en parlay top-K)",
         )
         return SharpBetResult(
             pipeline=pipeline,
@@ -129,16 +304,20 @@ def apply_sharp_gate(
             sharp_reason=gated.blocked_reason or "",
             decision=gated,
             stake_pct=0.0,
+            portfolio_tier=tier,
+            rank_score=rank_score,
         )
 
     stake = allocate_sharp_stake(dec, ev_final=ev_final, mds=mds, confidence_norm=conf)
-    path = list(dec.tree_path) + [f"sharp_gate:PASS mds={mds} ev={ev_final:.2%}"]
+    path = list(dec.tree_path) + [
+        f"sharp_gate:PASS tier={tier} mds={mds} ev={ev_final:.2%} score={rank_score:.1f}",
+    ]
     allowed_dec = replace(
         dec,
         tree_path=path,
         stake_pct=stake,
         no_bet=False,
-        classification="Apuesta SHARP recomendada",
+        classification=f"Apuesta SHARP tier {tier}",
     )
     return SharpBetResult(
         pipeline=pipeline,
@@ -146,9 +325,11 @@ def apply_sharp_gate(
         ev_final=ev_final,
         confidence_norm=conf,
         sharp_allowed=True,
-        sharp_reason="SHARP single aprobado",
+        sharp_reason=f"SHARP single tier {tier}",
         decision=allowed_dec,
         stake_pct=stake,
+        portfolio_tier=tier,
+        rank_score=rank_score,
     )
 
 

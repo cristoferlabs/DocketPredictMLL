@@ -6,6 +6,14 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from apps.api.services.confidence_score import compute_mds, compute_unified_confidence
+from apps.api.services.market_alignment import (
+    alignment_status,
+    confidence_divergence_penalty,
+    gap_pp,
+    max_soft_action_for_gap,
+    model_outlier_status,
+    one_x_two_gap_blocks_bet,
+)
 from apps.api.services.market_dominance import MarketDominanceResult
 from apps.api.services.market_uncertainty import (
     EvBand,
@@ -333,9 +341,13 @@ def run_bet_decision_tree(
             path.append("pick:best_fair_edge")
 
     if source_outcome:
-        ev_band = compute_ev_band(source_outcome, mus=mus, market_confidence=mc)
+        alpha_regime = (m.blend_meta or {}).get("calibration", {}).get("alpha_regime")
+        ev_band = compute_ev_band(
+            source_outcome, mus=mus, market_confidence=mc, alpha_regime=alpha_regime
+        )
     else:
         div = dominance.max_raw_divergence if structural else 0.0
+        alpha_regime = (m.blend_meta or {}).get("calibration", {}).get("alpha_regime")
         ev_band = compute_ev_band_from_pick(
             selection=primary.selection,
             model_prob=primary.model_prob,
@@ -344,6 +356,7 @@ def run_bet_decision_tree(
             mus=mus,
             market_confidence=mc,
             ev_base=primary.ev_fair,
+            alpha_regime=alpha_regime,
         )
 
     pick_div = source_outcome.divergence if source_outcome else 0.0
@@ -377,8 +390,29 @@ def run_bet_decision_tree(
         trust=trust,
         cold_start=historical_accuracy is None,
     )
+    pick_gap = gap_pp(primary.model_prob, pick_mkt_impl)
+    align_key, align_label, align_desc = alignment_status(pick_gap)
+    out_key, out_label, out_desc, out_mult, out_force = model_outlier_status(
+        pick_gap, market=primary.market
+    )
+    penalty = 0
+    if dominance.layer != "extreme":
+        penalty = confidence_divergence_penalty(
+            pick_gap,
+            model_prob=primary.model_prob,
+            market_implied=pick_mkt_impl,
+        )
+    if out_mult < 1.0 and dominance.layer != "extreme":
+        conf_score = int(conf_score * out_mult)
+    if penalty:
+        conf_score = max(0, conf_score - penalty)
+    path.append(
+        f"align:{align_key}({pick_gap:.1f}pp)|outlier:{out_key}|conf:{conf_score}"
+    )
+    if out_key != "ok":
+        path.append(f"outlier_gate:{out_label}")
     if historical_accuracy is None:
-        path.append("cold_start:cap58")
+        path.append("cold_start:soft_penalty")
     path.append(f"mds:{mds}|confidence:{conf_score}")
 
     diag_primary = dominance.diagnosis.primary_type if dominance.diagnosis else None
@@ -390,6 +424,8 @@ def run_bet_decision_tree(
         confidence_score=conf_score,
         diagnosis_primary=diag_primary,
         trust=trust,
+        pick_model_prob=primary.model_prob,
+        pick_market_implied=pick_mkt_impl,
     )
     if (
         soft_action == "NO_BET"
@@ -403,6 +439,56 @@ def run_bet_decision_tree(
                 "mismatch estructural — fair sin valor; edge raw informativo",
             )
     path.append(f"soft_gate:{soft_action} ({soft_reason})")
+
+    cal = (m.blend_meta or {}).get("calibration") or {}
+    if cal:
+        path.append(
+            f"cal:regime={cal.get('alpha_regime', '?')}|α={cal.get('alpha', 0)}"
+            f"|shrink={1 if cal.get('shrink_applied') else 0}"
+        )
+    if (
+        soft_action == "STRONG_BET"
+        and ev_band.base > 0.15
+    ):
+        soft_action = "WEAK_BET"
+        soft_reason = f"EV post-cal {ev_band.base:.1%} > 15% — cap WEAK"
+        path.append("ev_post_cal_cap:WEAK")
+
+    action_cap = max_soft_action_for_gap(pick_gap)
+    if action_cap and soft_action == "STRONG_BET":
+        soft_action = action_cap
+        soft_reason = f"{align_label} — downgrade desde STRONG_BET"
+        path.append(f"align_cap:{action_cap}")
+
+    if out_force == "NO_BET":
+        if dominance.layer == "extreme":
+            soft_action = "WATCH"
+            soft_reason = f"{out_label} — mismatch estructural (observar)"
+            path.append("outlier_extreme:WATCH")
+        else:
+            soft_action = "NO_BET"
+            soft_reason = f"{out_label} — {out_desc}"
+            path.append("outlier_force:NO_BET")
+    elif out_force is None and out_key in ("outlier", "investigate") and soft_action in (
+        "STRONG_BET",
+        "WEAK_BET",
+    ):
+        soft_action = "WATCH"
+        soft_reason = f"{out_label} — investigar"
+        path.append("outlier_cap:WATCH")
+
+    if (
+        primary.market == "1X2"
+        and pick_gap > 25.0
+        and soft_action in ("STRONG_BET", "WEAK_BET")
+    ):
+        soft_action = "WATCH"
+        soft_reason = f"INVESTIGATE — Δ 1X2 {pick_gap:.0f}pp"
+        path.append("1x2_investigate:WATCH")
+    if primary.market == "1X2" and one_x_two_gap_blocks_bet(pick_gap):
+        soft_action = "NO_BET"
+        soft_reason = f"1X2 Δ {pick_gap:.0f}pp — NO BET"
+        path.append("1x2_block:NO_BET")
 
     if soft_action in ("NO_BET", "WATCH"):
         return _no_bet_result(

@@ -201,6 +201,7 @@ class ModelMarkets:
     lambda_home: float
     lambda_away: float
     confidence: str = "medium"
+    blend_meta: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -219,28 +220,137 @@ class MatchAnalysis:
     local_visitante: dict[str, Any] = field(default_factory=dict)
 
 
+def _anchor_elo_poisson_disagreement(
+    home: float,
+    draw: float,
+    away: float,
+    elo_home: float,
+    elo_away: float,
+    elo_probs: dict[str, float],
+    *,
+    threshold_pp: float = 0.08,
+) -> tuple[float, float, float]:
+    """Ancla favorito Poisson cuando ELO es parejo o favorece al otro lado."""
+    eh = elo_probs["home_win"]
+    ea = elo_probs["away_win"]
+    h, d, a = home, draw, away
+    if h > eh + threshold_pp and elo_away >= elo_home - 20:
+        h = 0.50 * h + 0.50 * eh
+    if a > ea + threshold_pp and elo_home >= elo_away - 20:
+        a = 0.50 * a + 0.50 * ea
+    total = h + d + a
+    if total <= 0:
+        return home, draw, away
+    return h / total, d / total, a / total
+
+
+def _dampen_low_scoring_favorite(
+    home: float,
+    draw: float,
+    away: float,
+    lambda_home: float,
+    lambda_away: float,
+) -> tuple[float, float, float]:
+    """λ total bajo → menos probabilidad de goleada; cap al favorito."""
+    total_lambda = lambda_home + lambda_away
+    if total_lambda >= 2.50:
+        return home, draw, away
+    peak = max(home, away)
+    if peak <= 0.56:
+        return home, draw, away
+    cap = min(0.60, 0.52 + (total_lambda - 1.8) * 0.08)
+    h, d, a = home, draw, away
+    if h >= a and h > cap:
+        h = cap + (h - cap) * 0.40
+    elif a > h and a > cap:
+        a = cap + (a - cap) * 0.40
+    total = h + d + a
+    if total <= 0:
+        return home, draw, away
+    return h / total, d / total, a / total
+
+
 def compute_model_markets(
     lambda_home: float,
     lambda_away: float,
     elo_home: float,
     elo_away: float,
     *,
-    blend_poisson: float = 0.6,
-    blend_elo: float = 0.4,
+    blend_poisson: float | None = None,
+    blend_elo: float | None = None,
     calibrate: bool = True,
+    market_fair_1x2: dict[str, float] | None = None,
+    apply_market_calibration: bool = False,
+    apply_joint_calibration: bool = True,
 ) -> ModelMarkets:
-    poisson = poisson_predict(lambda_home, lambda_away)
+    from apps.worker.ml.model_combiner import (
+        ModelCombinationWeights,
+        combine_1x2,
+    )
+
+    poisson = poisson_predict(lambda_home, lambda_away, elo_home=elo_home, elo_away=elo_away)
     poisson_1x2 = outcome_probabilities(poisson.score_matrix)
+
+    from apps.worker.ml.shape_calibration import ShapeFeatures, apply_poisson_shape_calibration
+
+    poisson_1x2, shape_meta = apply_poisson_shape_calibration(
+        poisson_1x2,
+        poisson.match_context,  # type: ignore[arg-type]
+        features=ShapeFeatures.from_match(
+            poisson.lambda_home,
+            poisson.lambda_away,
+            elo_home=elo_home,
+            elo_away=elo_away,
+        ),
+    )
+
     elo_p = elo_predict(elo_home, elo_away, EloConfig())
 
-    # Blend Poisson + ELO (modelo interno, NO usa odds)
-    w_p, w_e = blend_poisson, blend_elo
-    home = w_p * poisson_1x2["home_win"] + w_e * elo_p.home_win
-    draw = w_p * poisson_1x2["draw"] + w_e * elo_p.draw
-    away = w_p * poisson_1x2["away_win"] + w_e * elo_p.away_win
-    total = home + draw + away
-    home, draw, away = home / total, draw / total, away / total
+    if blend_poisson is not None or blend_elo is not None:
+        wp = blend_poisson if blend_poisson is not None else 0.5
+        we = blend_elo if blend_elo is not None else (1.0 - wp)
+        weights = ModelCombinationWeights(poisson=wp, elo=we, market=0.0)
+    else:
+        weights = ModelCombinationWeights.from_settings()
 
+    combined = combine_1x2(
+        poisson_1x2,
+        {
+            "home_win": elo_p.home_win,
+            "draw": elo_p.draw,
+            "away_win": elo_p.away_win,
+        },
+        weights=weights,
+        market_fair=market_fair_1x2,
+        calibration_layer=apply_market_calibration and market_fair_1x2 is not None,
+    )
+    blended = combined.decision.as_dict()
+    home, draw, away = blended["home_win"], blended["draw"], blended["away_win"]
+    elo_1x2 = {
+        "home_win": elo_p.home_win,
+        "draw": elo_p.draw,
+        "away_win": elo_p.away_win,
+    }
+
+    blended_home, blended_draw, blended_away = home, draw, away
+    home, draw, away = _anchor_elo_poisson_disagreement(
+        home, draw, away, elo_home, elo_away, elo_1x2
+    )
+    after_anchor = (home, draw, away)
+    home, draw, away = _dampen_low_scoring_favorite(
+        home, draw, away, lambda_home, lambda_away
+    )
+    sanity_flags: list[str] = []
+    if (
+        abs(after_anchor[0] - blended_home) > 0.005
+        or abs(after_anchor[2] - blended_away) > 0.005
+    ):
+        sanity_flags.append("elo_anchor")
+    if abs(home - after_anchor[0]) > 0.005 or abs(away - after_anchor[2]) > 0.005:
+        sanity_flags.append("low_lambda_cap")
+
+    fitted_weights: dict[str, Any] | None = None
+    joint_meta: dict[str, Any] = {"joint_calibration": False, "applied": False}
     if calibrate:
         calibrated = calibrate_model_markets(
             home,
@@ -255,12 +365,55 @@ def compute_model_markets(
         home, draw, away = calibrated["home_win"], calibrated["draw"], calibrated["away_win"]
         over_25, under_25 = calibrated["over_25"], calibrated["under_25"]
         btts_yes, btts_no = calibrated["btts_yes"], calibrated["btts_no"]
+
+        from apps.worker.ml.calibration_metrics import (
+            apply_underdog_dampening,
+            load_fitted_model_weights,
+        )
+
+        fitted_weights = load_fitted_model_weights() or {}
+        dampen = float(fitted_weights.get("underdog_dampen_factor", 1.0))
+        if dampen < 1.0:
+            home, draw, away = apply_underdog_dampening(
+                home, draw, away, dampen_factor=dampen
+            )
+
+        from apps.worker.ml.model_learning import apply_learning_corrections
+
+        home, draw, away = apply_learning_corrections(home, draw, away)
     else:
         over_25, under_25 = poisson.over_25, poisson.under_25
         btts_yes, btts_no = poisson.btts_yes, poisson.btts_no
 
+    from apps.worker.ml.joint_calibration import apply_joint_pricing_calibration
+
+    stat_pre_joint = {"home_win": home, "draw": draw, "away_win": away}
+    if apply_joint_calibration:
+        joint_probs, joint_meta = apply_joint_pricing_calibration(
+            stat_pre_joint,
+            market_fair_1x2,
+            poisson.match_context,  # type: ignore[arg-type]
+        )
+        home, draw, away = joint_probs["home_win"], joint_probs["draw"], joint_probs["away_win"]
+    else:
+        joint_meta = {"joint_calibration": False, "applied": False, "reason": "disabled"}
+
     max_p = max(home, draw, away)
     confidence = "high" if max_p >= 0.55 else "medium" if max_p >= 0.42 else "low"
+
+    blend_meta = combined.blend_meta()
+    blend_meta["poisson_1x2"] = poisson_1x2
+    blend_meta["elo_1x2"] = elo_1x2
+    blend_meta["poisson_dc"] = poisson.dc_meta
+    blend_meta["poisson_shape"] = shape_meta
+    blend_meta["joint_pricing"] = joint_meta
+    if sanity_flags:
+        blend_meta["sanity_adjustments"] = sanity_flags
+    if fitted_weights:
+        if float(fitted_weights.get("underdog_dampen_factor", 1.0)) < 1.0:
+            blend_meta["underdog_dampen_factor"] = fitted_weights["underdog_dampen_factor"]
+        if fitted_weights.get("poisson") is not None:
+            blend_meta["weights_fitted"] = True
 
     return ModelMarkets(
         home_win=round(home, 4),
@@ -273,6 +426,7 @@ def compute_model_markets(
         lambda_home=lambda_home,
         lambda_away=lambda_away,
         confidence=confidence,
+        blend_meta=blend_meta,
     )
 
 
@@ -310,8 +464,11 @@ def analyze_match(
     data_2022: dict,
     fd_matches: list[dict],
     elo_ratings: dict[str, float],
+    *,
+    odds_event: dict | None = None,
 ) -> MatchAnalysis:
     from apps.worker.ml.wc_features import build_match_features
+    from apps.worker.ml.joint_calibration import market_fair_1x2_from_event
 
     features = build_match_features(match, data_2018, data_2022, fd_matches, elo_ratings)
     t1 = features["team1"]
@@ -323,17 +480,14 @@ def analyze_match(
     elo_diff = elo1 - elo2
     elo_win1 = round(1 / (1 + 10 ** (-elo_diff / 400)) * 100, 1)
 
-    from apps.shared.config import get_settings
-
-    blend_w = get_settings().market_blend_model_weight
+    market_fair = market_fair_1x2_from_event(odds_event, t1, t2)
     model = compute_model_markets(
         lambdas.lambda_home,
         lambdas.lambda_away,
         elo1,
         elo2,
-        blend_poisson=blend_w,
-        blend_elo=round(1.0 - blend_w, 4),
         calibrate=True,
+        market_fair_1x2=market_fair,
     )
 
     hf1 = features["home_factor"][t1]

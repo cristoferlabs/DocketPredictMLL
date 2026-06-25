@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 from apps.api.services.worldcup_engine import set_calibration_factors
 from apps.shared.supabase_client import get_supabase
 from apps.worker.ingest.worldcup_json import fetch_all_worldcup_archives
-from apps.worker.ml.calibration import expected_calibration_error, fit_calibration_bundle, reliability_bins
+from apps.worker.ml.calibration import (
+    expected_calibration_error,
+    fit_calibration_bundle,
+    load_fitted_calibration_factors,
+    reliability_bins,
+    save_fitted_calibration_factors,
+)
 from apps.worker.ml.wc_historical import actual_outcomes, extract_finished_matches, predict_match_historical
 
 logger = logging.getLogger(__name__)
@@ -106,6 +112,42 @@ async def calibrate_models(ctx: dict) -> dict:
         _finish_job(db, job_id, result)
         return result
 
+    from apps.worker.ml.backtest import evaluate_calibration_holdout_roi
+    from apps.worker.ml.calibration_metrics import load_fitted_model_weights
+    from apps.worker.ml.model_learning import (
+        deploy_calibration_gate,
+        evaluate_live_brier_from_db,
+    )
+
+    class _NeutralAudit:
+        favorite_bias_score = 0.0
+
+    weights_art = load_fitted_model_weights() or {}
+    hist_brier = float((weights_art.get("test") or {}).get("brier_1x2", 0.0)) or None
+    bt_roi, bt_details = evaluate_calibration_holdout_roi(archives, factors, db=db)
+    approved, block_reasons = deploy_calibration_gate(
+        audit=_NeutralAudit(),
+        live_brier=evaluate_live_brier_from_db(db),
+        historical_brier=hist_brier,
+        backtest_roi=bt_roi,
+        backtest_roi_details=bt_details,
+    )
+    if not approved:
+        save_fitted_calibration_factors(
+            {**factors, "_deploy_reasons": block_reasons},
+            approved=False,
+        )
+        set_calibration_factors(load_fitted_calibration_factors())
+        result = {
+            "status": "deploy_blocked",
+            "reasons": block_reasons,
+            "backtest_roi": bt_roi,
+            "ece_after": ece_after,
+        }
+        _finish_job(db, job_id, result)
+        logger.warning("calibrate_models deploy blocked: %s", block_reasons)
+        return result
+
     # Deactivate previous factors
     try:
         db.schema("ml").table("calibration_factors").update({"is_active": False}).eq(
@@ -171,9 +213,7 @@ async def calibrate_models(ctx: dict) -> dict:
             logger.warning("insert bucket %s: %s", outcome, exc)
 
     try:
-        from apps.worker.ml.calibration import save_fitted_calibration_factors
-
-        save_fitted_calibration_factors(factors)
+        save_fitted_calibration_factors(factors, approved=True)
     except Exception as exc:
         logger.warning("save calibration artifact: %s", exc)
 

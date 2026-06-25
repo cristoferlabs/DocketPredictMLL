@@ -11,7 +11,7 @@ from apps.api.services.trust_arbitration import TrustArbitration
 from apps.api.services.worldcup_engine import MatchAnalysis, ModelMarkets
 
 
-def test_cold_start_caps_confidence():
+def test_cold_start_soft_penalty_not_hard_cap():
     trust = TrustArbitration(
         model_confidence=0.90,
         market_confidence=0.55,
@@ -24,19 +24,19 @@ def test_cold_start_caps_confidence():
     uncapped = compute_unified_confidence(
         mds=85, model_reliability=0.80, trust=trust, cold_start=False
     )
-    capped = compute_unified_confidence(
+    penalized = compute_unified_confidence(
         mds=85, model_reliability=0.80, trust=trust, cold_start=True
     )
-    assert capped <= 58
-    assert uncapped > capped
+    assert penalized < uncapped
+    assert penalized > 58
 
 
 def test_sharp_composite_gate():
     from apps.shared.config import get_settings
 
     settings = get_settings()
-    assert sharp_composite_passes(settings.sharp_min_composite, settings=settings)
-    assert not sharp_composite_passes(settings.sharp_min_composite - 1, settings=settings)
+    assert sharp_composite_passes(settings.sharp_portfolio_min_composite, settings=settings)
+    assert not sharp_composite_passes(settings.sharp_portfolio_min_composite - 1, settings=settings)
 
 
 def test_unified_confidence_weights():

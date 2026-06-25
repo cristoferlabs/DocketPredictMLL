@@ -26,6 +26,6 @@ def test_trading_message_has_engine_v2_no_blend():
 
 
 def test_parlay_message_has_engine_v2():
-    msg = format_parlay_message(ParlayBuildResult(eligible_legs=[], rejected_legs=[], tickets=[]))
+    msg = format_parlay_message(ParlayBuildResult(eligible_picks=[], rejected_picks=[], tickets=[]))
     assert ENGINE_VERSION_TAG in msg
-    assert "PARLAY ENGINE" in msg
+    assert "QUANT ENGINE" in msg

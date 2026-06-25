@@ -1,8 +1,8 @@
 {
   "1X2": {
-    "home_win": 1.55,
-    "draw": 1.074367,
-    "away_win": 1.3214
+    "home_win": 1.0,
+    "draw": 1.0,
+    "away_win": 1.0
   },
   "over_under_2.5": {
     "over": 0.623441,
@@ -14,15 +14,15 @@
   },
   "1X2_buckets": {
     "team_win": {
-      "favorite": 1.7424,
-      "medium": 1.28,
-      "underdog": 0.48
+      "favorite": 1.08,
+      "medium": 1.0,
+      "underdog": 0.92
     },
-    "draw": 1.08,
+    "draw": 1.0,
     "draw_dampen_threshold": 0.48,
     "draw_dampen_factor": 0.9,
     "underdog_cap_max_p": 0.3,
-    "underdog_cap_factor": 0.7375,
-    "compressed_favorite_max_lift": 0.2363
+    "underdog_cap_factor": 0.85,
+    "compressed_favorite_max_lift": 0.08
   }
 }

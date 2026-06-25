@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from apps.api.services.market_uncertainty import MarketUncertaintyResult, compute_market_uncertainty
+from apps.api.services.market_alignment import ALIGNMENT_TIERS, alignment_status
 from apps.api.services.odds_context import MarketContext1X2, OutcomeEdge, max_market_divergence
 from apps.api.services.worldcup_engine import MatchAnalysis, ModelMarkets
 from apps.worker.ml.odds_math import expected_value_raw
@@ -34,7 +35,10 @@ DISCREPANCY_LABELS: dict[str, tuple[str, str]] = {
     ),
     "elo_drift": ("ELO drift", "Rating ELO desalineado con el precio de mercado"),
     "poisson_bias": ("Poisson bias", "λ ofensivos mal estimados vs implied del mercado"),
-    "data_noise": ("Data noise", "Muestra histórica limitada — confianza del modelo reducida"),
+    "alignment_aligned": ALIGNMENT_TIERS["aligned"],
+    "alignment_mild": ALIGNMENT_TIERS["mild"],
+    "alignment_divergence": ALIGNMENT_TIERS["divergence"],
+    "alignment_alert": ALIGNMENT_TIERS["alert"],
 }
 
 LAYER_LABELS: dict[str, str] = {
@@ -332,10 +336,14 @@ def diagnose_discrepancy(
         primary = "elo_drift"
     elif has_poisson_bias:
         primary = "poisson_bias"
-    elif weak_data and max_divergence < 0.20:
-        primary = "data_noise"
-    elif max_divergence >= 0.15:
-        primary = "market_dominant"
+    elif max_divergence >= 0.12:
+        gap_pp = max_divergence * 100.0
+        align_key, _, _ = alignment_status(gap_pp)
+        primary = f"alignment_{align_key}"
+    elif weak_data:
+        gap_pp = max_divergence * 100.0
+        align_key, _, _ = alignment_status(gap_pp)
+        primary = f"alignment_{align_key}"
     else:
         return None
 
@@ -348,7 +356,7 @@ def diagnose_discrepancy(
         secondary = "model_underconfidence"
     elif primary == "poisson_bias" and tier in ("low", "medium"):
         secondary = "model_underconfidence"
-    elif primary == "data_noise" and tier == "low":
+    elif primary.startswith("alignment_") and tier == "low":
         secondary = "model_underconfidence"
 
     p_label, p_desc = DISCREPANCY_LABELS.get(primary, ("Desacople", "Modelo y mercado divergen"))
@@ -444,7 +452,9 @@ def detect_market_dominance(
 
     if is_dominant:
         classification = "market_dominant"
-    elif layer == "doubt" or (diagnosis and diagnosis.primary_type == "data_noise"):
+    elif layer == "doubt" or (
+        diagnosis is not None and diagnosis.primary_type.startswith("alignment_")
+    ):
         classification = "model_degraded"
     else:
         classification = "aligned"

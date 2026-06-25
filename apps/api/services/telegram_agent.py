@@ -9,6 +9,7 @@ from typing import Any
 from supabase import Client
 
 from apps.api.services.injury_news import fetch_injury_report
+from apps.api.services.live_calibration import calibrate_analysis_model
 from apps.api.services.llm import get_llm_client
 from apps.api.services.odds_context import (
     compute_ev_opportunities,
@@ -17,6 +18,8 @@ from apps.api.services.odds_context import (
     odds_unavailable_reason,
 )
 from apps.api.services.telegram_client import TelegramClient
+from apps.api.services.telegram_terminal import BettingTerminal
+from apps.api.services.telegram_terminal.session import load_session
 from apps.api.services.worldcup_engine import (
     analyze_match,
     find_upcoming_matches,
@@ -33,11 +36,14 @@ from apps.worker.ml.ev_anomaly import evaluate_pick, log_anomaly_to_db
 from apps.worker.ml.guardrails import check_ev_guardrails
 from apps.worker.ml.model_loader import load_calibration_factors_from_db
 from apps.worker.ml.wc_audit import audit_upcoming_matches
+from apps.api.services.engine_health import evaluate_engine_health
+from apps.api.services.stats_report import build_pro_stats_report, build_roi_report
 from apps.worker.ml.wc_predictions import save_wc_prediction
 from apps.api.services.sharp_engine import SharpBetResult, run_sharp_engine
 from apps.api.services.parlay_engine import (
-    build_parlays_from_legs,
-    evaluate_parlay_leg,
+    ParlayBuildResult,
+    build_parlays_from_sharp_picks,
+    extract_sharp_parlay_pick,
     format_parlay_message,
 )
 from apps.api.services.parlay_tracking import save_parlay_ticket
@@ -67,6 +73,7 @@ class TelegramAgentService:
         self.db = db
         self.llm = get_llm_client()
         self.telegram = TelegramClient()
+        self.terminal = BettingTerminal(db, self.telegram)
         self.settings = get_settings()
         self._wc_cache: dict | None = None
 
@@ -98,6 +105,8 @@ class TelegramAgentService:
             return "combinada"
         if t.startswith("/stats"):
             return "stats"
+        if t.startswith("/roi"):
+            return "roi"
         if t.startswith("/hoy") or t.startswith("/partidos"):
             return "today"
         if any(w in t for w in ("predic", "pronost", "analiza", "vs")):
@@ -117,13 +126,38 @@ class TelegramAgentService:
         if not chat_id:
             return {"ok": False, "error": "no chat_id"}
 
+        session_id, session_ctx = load_session(self.db, chat_id)
+        hist_acc = self._load_historical_accuracy()
+
         if callback_id:
             await self.telegram.answer_callback_query(callback_id)
 
-        if callback_data and callback_data.startswith("wc:"):
+        markup: dict | None = None
+
+        if callback_data and BettingTerminal.is_terminal_callback(callback_data):
+            msg, markup, _, session_id = await self.terminal.handle_callback(
+                chat_id,
+                callback_data,
+                session_id=session_id,
+                context=session_ctx,
+                historical_accuracy=hist_acc,
+            )
+            await self.telegram.send_message(chat_id, msg, reply_markup=markup)
+            return {"ok": True, "chat_id": chat_id, "sent": True, "terminal": True}
+
+        if callback_data and BettingTerminal.is_legacy_wc_callback(callback_data):
             teams = callback_data.replace("wc:", "").split("|")
             if len(teams) >= 2:
-                text = f"analiza {teams[0]} vs {teams[1]}"
+                msg, markup, _, session_id = await self.terminal.handle_team_query(
+                    chat_id,
+                    teams[0],
+                    teams[1],
+                    session_id=session_id,
+                    context=session_ctx,
+                    historical_accuracy=hist_acc,
+                )
+                await self.telegram.send_message(chat_id, msg, reply_markup=markup)
+                return {"ok": True, "chat_id": chat_id, "sent": True, "terminal": True}
 
         command = self._detect_command(text)
         await self._save_session(chat_id, text, command)
@@ -132,20 +166,38 @@ class TelegramAgentService:
             msg = self._help_text()
         elif command == "stats":
             msg = await self._stats_message()
+        elif command == "roi":
+            msg = await self._roi_message()
         elif command == "today":
-            msg, markup = await self._today_matches_menu()
+            msg, markup, _, session_id = await self.terminal.handle_today_command(
+                chat_id, session_id=session_id, context=session_ctx
+            )
             await self.telegram.send_message(chat_id, msg, reply_markup=markup)
-            return {"ok": True, "chat_id": chat_id, "sent": True}
+            return {"ok": True, "chat_id": chat_id, "sent": True, "terminal": True}
         elif command == "combinada":
             msg = await self._combinada_message()
         elif command == "alta":
             msg = await self._alta_message()
-        elif command in ("analyze", "general"):
+        elif command == "analyze":
+            t1, t2 = self._extract_teams(text)
+            if t1 and t2:
+                msg, markup, _, session_id = await self.terminal.handle_team_query(
+                    chat_id,
+                    t1,
+                    t2,
+                    session_id=session_id,
+                    context=session_ctx,
+                    historical_accuracy=hist_acc,
+                )
+                await self.telegram.send_message(chat_id, msg, reply_markup=markup)
+                return {"ok": True, "chat_id": chat_id, "sent": True, "terminal": True}
             msg = await self._analyze_message(text, alta_only=False)
+        elif command == "general":
+            msg = self._help_text()
         else:
             msg = self._help_text()
 
-        await self.telegram.send_message(chat_id, msg)
+        await self.telegram.send_message(chat_id, msg, reply_markup=markup)
         return {"ok": True, "chat_id": chat_id, "message_length": len(msg)}
 
     def _parse_update(self, update: dict) -> tuple[str, str, str, str]:
@@ -167,37 +219,81 @@ class TelegramAgentService:
 
     def _help_text(self) -> str:
         return (
-            "⚽ Agente Mundial 2026\n\n"
+            "🖥️ Betting Terminal v2 — Mundial 2026\n\n"
             "Comandos:\n"
-            "/hoy — Partidos próximos\n"
-            "/alta — Oportunidades SHARP (single bet, EV fair alto)\n"
-            "/combinada — Combinadas PARLAY (3–5 legs, modo portfolio)\n"
-            "/stats — Métricas de calibración, calidad de datos y guardrails\n"
-            "Colombia vs Brasil — Análisis con pick, EV, semáforo y stake\n\n"
-            "El modelo usa Poisson + ELO + datos WC 2018/2022/2026.\n"
-            "Las cuotas de casas NO modifican el modelo; solo calculan EV.\n\n"
+            "/hoy — Explorar partidos (sin análisis)\n"
+            "/alta — Scan SHARP multi-partido\n"
+            "/combinada — Parlays multi-partido\n"
+            "/stats — Brier, CLV, ROI, tiers SHARP\n"
+            "/roi — ROI live + backtest (compacto)\n"
+            "Colombia vs Brasil — Dashboard del partido\n\n"
+            "Flujo: /hoy → partido → opciones / combinadas / análisis\n"
+            "El terminal muestra datos — tú decides.\n\n"
             "⚠️ Predicciones probabilísticas, no garantías."
         )
 
     async def _today_matches_menu(self) -> tuple[str, dict | None]:
-        d26, d22, d18, _ = await self._load_worldcup_data()
-        upcoming = find_upcoming_matches(d26, days_ahead=7)
-        if not upcoming:
-            return "No hay partidos del Mundial en los próximos 7 días.", None
+        text, markup, _ = await self.terminal.get_today_matches()
+        return text, markup
 
-        rows = []
-        for m in upcoming[:8]:
-            t1 = m.get("team1", {}).get("name", "TBD")
-            t2 = m.get("team2", {}).get("name", "TBD")
-            fecha = (m.get("date") or "")[:10]
-            rows.append(
-                [{"text": f"{t1} vs {t2}", "callback_data": f"wc:{t1}|{t2}|{fecha}"}]
-            )
-
-        return (
-            f"📅 Partidos Mundial próximos ({len(upcoming)} encontrados)\nToca un partido:",
-            {"inline_keyboard": rows},
+    def _persist_sharp_pick(self, analysis, sharp: SharpBetResult) -> None:
+        """Log SHARP aprobado/WATCH con tier para hit-rate por tier en /stats."""
+        if not sharp or not sharp.decision.pick:
+            return
+        if not sharp.sharp_allowed and sharp.decision.soft_action != "WATCH":
+            return
+        dec = sharp.decision
+        pick = dec.pick
+        m = analysis.model
+        if not m:
+            return
+        pred_id = save_wc_prediction(
+            self.db,
+            team_home=analysis.team1,
+            team_away=analysis.team2,
+            match_date=(analysis.fecha or "")[:10] or None,
+            market_type=pick.market or "1X2",
+            predicted_outcome=pick.selection,
+            probability=pick.model_prob,
+            expected_value_fair=pick.ev_fair,
+            edge_fair=pick.edge_fair,
+            kelly_stake=pick.kelly_stake,
+            metadata={
+                "source": "sharp_scan",
+                "sharp_tier": sharp.portfolio_tier,
+                "sharp_allowed": sharp.sharp_allowed,
+                "soft_action": dec.soft_action,
+                "mds": sharp.mds,
+                "rank_score": sharp.rank_score,
+                "sharp_phase": (m.blend_meta or {}).get("calibration", {}).get("sharp_phase"),
+                "alpha_regime": (m.blend_meta or {}).get("calibration", {}).get("alpha_regime"),
+                "alpha": (m.blend_meta or {}).get("calibration", {}).get("alpha"),
+                "prob_statistical": (m.blend_meta or {}).get("statistical"),
+                "prob_calibrated": {
+                    "home_win": m.home_win,
+                    "draw": m.draw,
+                    "away_win": m.away_win,
+                },
+                "shrink_applied": (m.blend_meta or {}).get("calibration", {}).get("shrink_applied"),
+                "model_1x2": {
+                    "home_win": m.home_win,
+                    "draw": m.draw,
+                    "away_win": m.away_win,
+                },
+                "blend_meta": m.blend_meta,
+            },
         )
+        if pred_id and pick.raw_odds and pick.raw_odds > 1:
+            record_pick_snapshot(
+                self.db,
+                team_home=analysis.team1,
+                team_away=analysis.team2,
+                market=pick.market or "1X2",
+                selection=pick.selection,
+                odds_decimal=pick.raw_odds,
+                fair_odds=pick.fair_odds,
+                prediction_id=pred_id,
+            )
 
     def _save_model_prediction(self, analysis) -> None:
         """Persist model 1X2 pick for learning loop (every analysis)."""
@@ -235,6 +331,12 @@ class TelegramAgentService:
                     "draw": m.draw,
                     "away_win": m.away_win,
                 },
+                "model_1x2": {
+                    "home_win": m.home_win,
+                    "draw": m.draw,
+                    "away_win": m.away_win,
+                },
+                "blend_meta": m.blend_meta,
             },
         )
 
@@ -260,7 +362,6 @@ class TelegramAgentService:
 
         m = analysis.model
         odds_event = await find_wc_odds_event(analysis.team1, analysis.team2, db=self.db)
-        market_ctx = compute_market_context(m, analysis.team1, analysis.team2, odds_event)
         hist_played = (
             (analysis.historico.get(analysis.team1, {}).get("wc2022", {}).get("played", 0) or 0)
             + (analysis.historico.get(analysis.team2, {}).get("wc2022", {}).get("played", 0) or 0)
@@ -284,6 +385,15 @@ class TelegramAgentService:
         )
         quality_note = f"Datos {dq_label}"
         dq_completeness = dq.completeness_pct
+
+        calibrate_analysis_model(
+            analysis,
+            odds_event,
+            data_quality_pct=dq_completeness,
+            hist_played=hist_played,
+        )
+        m = analysis.model
+        market_ctx = compute_market_context(m, analysis.team1, analysis.team2, odds_event)
 
         if can_publish_ev(dq, odds_flags) and odds_event and market_ctx.has_market:
             guard = check_ev_guardrails(self.db, self.settings)
@@ -326,7 +436,8 @@ class TelegramAgentService:
             )
         return (
             f"⚽ {analysis.team1} vs {analysis.team2}\n"
-            f"   🎯 {label} | EV {sharp.ev_final*100:+.1f}% | MDS {sharp.mds}{trust_s}\n"
+            f"   🎯 {label} | tier {sharp.portfolio_tier} | "
+            f"EV {sharp.ev_final*100:+.1f}% | MDS {sharp.mds}{trust_s}\n"
             f"   💵 Stake {dec.stake_pct:g}% | {dec.classification}"
         )
 
@@ -354,17 +465,23 @@ class TelegramAgentService:
                 continue
             if sharp.sharp_allowed:
                 approved.append((analysis, sharp))
+                self._persist_sharp_pick(analysis, sharp)
             elif sharp.decision.soft_action == "WATCH":
                 watch.append((analysis, sharp))
 
         approved.sort(key=lambda x: (-x[1].mds, -x[1].ev_final))
 
+        health = evaluate_engine_health(self.db, settings=self.settings)
         lines = [
             f"🟢 {ENGINE_VERSION_TAG}",
             "💎 SHARP ENGINE — singles aprobados",
             f"Escaneados: {min(len(upcoming), scan_limit)} partidos",
             "",
         ]
+        banner = health.banner_line()
+        if banner:
+            lines.insert(1, banner)
+            lines.insert(2, "")
 
         if approved:
             lines.append(f"✅ Aprobados ({len(approved)})")
@@ -425,16 +542,6 @@ class TelegramAgentService:
 
         if analysis.model:
             m = analysis.model
-            market_ctx = compute_market_context(m, analysis.team1, analysis.team2, odds_event)
-            if market_ctx.has_market:
-                saved = record_wc_market_snapshots(
-                    self.db,
-                    team_home=analysis.team1,
-                    team_away=analysis.team2,
-                    market_ctx=market_ctx,
-                )
-                if saved:
-                    logger.debug("odds_snapshots market: %s filas", saved)
             hist_played = (
                 (analysis.historico.get(analysis.team1, {}).get("wc2022", {}).get("played", 0) or 0)
                 + (analysis.historico.get(analysis.team2, {}).get("wc2022", {}).get("played", 0) or 0)
@@ -454,6 +561,24 @@ class TelegramAgentService:
             dq_label = f"OK ({dq.completeness_pct:.0f}%)" if dq.status == "ok" else f"{dq.status.upper()} ({dq.completeness_pct:.0f}%)"
             quality_note = f"Datos {dq_label}"
             dq_completeness = dq.completeness_pct
+
+            calibrate_analysis_model(
+                analysis,
+                odds_event,
+                data_quality_pct=dq_completeness,
+                hist_played=hist_played,
+            )
+            m = analysis.model
+            market_ctx = compute_market_context(m, analysis.team1, analysis.team2, odds_event)
+            if market_ctx.has_market:
+                saved = record_wc_market_snapshots(
+                    self.db,
+                    team_home=analysis.team1,
+                    team_away=analysis.team2,
+                    market_ctx=market_ctx,
+                )
+                if saved:
+                    logger.debug("odds_snapshots market: %s filas", saved)
 
             if can_publish_ev(dq, odds_flags):
                 guard = check_ev_guardrails(self.db, self.settings)
@@ -514,6 +639,12 @@ class TelegramAgentService:
                 metadata={
                     "priority": o.priority,
                     "fair_odds": o.fair_odds,
+                    "model_1x2": {
+                        "home_win": analysis.model.home_win,
+                        "draw": analysis.model.draw,
+                        "away_win": analysis.model.away_win,
+                    },
+                    "blend_meta": analysis.model.blend_meta,
                     "wc_features": {
                         "lambda_home": analysis.model.lambda_home,
                         "lambda_away": analysis.model.lambda_away,
@@ -587,7 +718,7 @@ class TelegramAgentService:
         return None
 
     async def _combinada_message(self) -> str:
-        """Escanea partidos próximos y construye combinadas (PARLAY MODE)."""
+        """Escanea partidos — PARLAY v3 solo desde picks SHARP validados."""
         d26, d22, d18, fd_matches = await self._load_worldcup_data()
         elo_ratings = await get_wc_elo_ratings(self.db)
         factors = load_calibration_factors_from_db(self.db)
@@ -596,34 +727,31 @@ class TelegramAgentService:
 
         upcoming = find_upcoming_matches(d26, days_ahead=14)
         if not upcoming:
-            return "No hay partidos próximos para armar combinadas. Prueba más cerca del Mundial."
+            return "No hay partidos próximos para armar combinadas."
 
         scan_limit = self.settings.parlay_max_matches_scan
-        legs = []
+        sharp_picks = []
 
         for match in upcoming[:scan_limit]:
-            analysis = analyze_match(match, d18, d22, fd_matches, elo_ratings)
-            if not analysis.model:
+            analysis, sharp, _ = await self._run_sharp_for_match(
+                match, d18=d18, d22=d22, fd_matches=fd_matches, elo_ratings=elo_ratings
+            )
+            if sharp is None or not analysis.model:
                 continue
             odds_event = await find_wc_odds_event(analysis.team1, analysis.team2, db=self.db)
             market_ctx = compute_market_context(
                 analysis.model, analysis.team1, analysis.team2, odds_event
             )
-            if not market_ctx.has_market:
-                leg = evaluate_parlay_leg(analysis, market_ctx)
-                leg.exclude_reason = leg.exclude_reason or "sin cuotas"
-                legs.append(leg)
-                continue
-            injury = await fetch_injury_report(analysis.team1, analysis.team2)
-            leg = evaluate_parlay_leg(
-                analysis,
-                market_ctx,
-                injury_report=injury,
-                settings=self.settings,
-            )
-            legs.append(leg)
+            ev_opps = []
+            if odds_event and market_ctx.has_market:
+                ev_opps = compute_ev_opportunities(
+                    analysis.model, analysis.team1, analysis.team2, odds_event, single_best=False
+                )
+            sp = extract_sharp_parlay_pick(analysis, sharp, market_ctx, ev_opps)
+            if sp:
+                sharp_picks.append(sp)
 
-        result = build_parlays_from_legs(legs)
+        result = build_parlays_from_sharp_picks(sharp_picks)
         if result.tickets:
             t = result.tickets[0]
             save_parlay_ticket(
@@ -729,95 +857,24 @@ class TelegramAgentService:
         return format_trading_message(card)
 
     async def _stats_message(self) -> str:
-        """Model calibration and data quality summary."""
-        lines = ["📊 Estadísticas del modelo", "─────────────────"]
-
-        factors = get_calibration_factors()
-        active_markets = [k for k, v in factors.items() if any(x != 1.0 for x in v.values())]
-        if active_markets:
-            lines.append(f"Calibración activa: {', '.join(active_markets)}")
-        else:
-            lines.append("Calibración: identidad (pendiente fit histórico)")
-
+        """Dashboard cuant: Brier, CLV, ROI, tiers SHARP."""
         try:
-            snap = (
-                self.db.schema("ml")
-                .table("calibration_snapshots")
-                .select("ece, brier, hit_rate, sample_size, market, created_at")
-                .order("created_at", desc=True)
-                .limit(3)
-                .execute()
-            )
-            if snap.data:
-                lines.append("\nÚltimas métricas (Supabase):")
-                for row in snap.data:
-                    lines.append(
-                        f"  {row.get('market')}: ECE {float(row.get('ece', 0)):.3f} | "
-                        f"Brier {row.get('brier') or '—'} | n={row.get('sample_size', 0)}"
-                    )
+            return build_pro_stats_report(self.db, settings=self.settings)
         except Exception as exc:
-            logger.debug("calibration_snapshots: %s", exc)
-            lines.append("\nMétricas Supabase: no disponibles (ejecuta migración)")
-
-        lines.append("\nGuardrails activos:")
-        lines.append(f"  EV min edge fair: {self.settings.ev_min_edge_fair*100:.1f}%")
-        lines.append(f"  EV max edge fair: {self.settings.ev_max_edge_fair*100:.1f}%")
-        lines.append(f"  Kelly fracción: {self.settings.kelly_fraction}")
-        lines.append(f"  ECE máx: {self.settings.ev_max_ece}")
-        lines.append(f"  ROI backtest mín: {self.settings.ev_min_roi_backtest}")
-        lines.append(f"  Casas mínimas (aviso): {self.settings.min_odds_books}")
-
-        try:
-            dq_log = (
-                self.db.schema("ops")
-                .table("data_quality_log")
-                .select("status, completeness_pct, flags, created_at")
-                .eq("context", "wc_audit")
-                .order("created_at", desc=True)
-                .limit(1)
-                .execute()
+            logger.warning("stats_report: %s", exc)
+            return (
+                "📊 Stats — error generando reporte.\n"
+                f"Detalle: {exc}\n"
+                "Revisa logs o ejecuta: python scripts/run_learning_cycle.py"
             )
-            if dq_log.data:
-                row = dq_log.data[0]
-                pct = row.get("completeness_pct")
-                pct_str = f"{float(pct):.1f}" if pct is not None else "—"
-                lines.append(f"\nAuditoría datos WC: {row.get('status')} ({pct_str}% completitud)")
-                flags = row.get("flags") or []
-                for f in flags[:3]:
-                    lines.append(f"  • {f.get('message', f.get('code', ''))}")
-            else:
-                live = await audit_upcoming_matches(db=self.db, days_ahead=14)
-                lines.append(
-                    f"\nAuditoría datos WC (en vivo): "
-                    f"{live.status_ok} ok / {live.status_partial} parcial / "
-                    f"{live.status_insufficient} insuficiente "
-                    f"({live.avg_completeness_pct}% avg)"
-                )
+
+    async def _roi_message(self) -> str:
+        """ROI live SHARP/+EV y backtest histórico."""
+        try:
+            return build_roi_report(self.db, settings=self.settings)
         except Exception as exc:
-            logger.debug("data quality stats: %s", exc)
-
-        try:
-            elo_n = (
-                self.db.schema("ml")
-                .table("wc_team_elo")
-                .select("id", count="exact")
-                .execute()
-            )
-            pred_n = (
-                self.db.schema("ml")
-                .table("wc_predictions")
-                .select("id", count="exact")
-                .execute()
-            )
-            lines.append(
-                f"\nBase aprendizaje: {elo_n.count or 0} filas ELO | "
-                f"{pred_n.count or 0} predicciones WC"
-            )
-        except Exception:
-            pass
-
-        lines.append("\nScripts: audit_ev.py | audit_data.py | run_update_elo.py")
-        return "\n".join(lines)
+            logger.warning("roi_report: %s", exc)
+            return f"💰 ROI — error generando reporte.\nDetalle: {exc}"
 
     async def _save_session(self, chat_id: str, text: str, intent: str) -> None:
         chat_hash = hashlib.sha256(str(chat_id).encode()).hexdigest()

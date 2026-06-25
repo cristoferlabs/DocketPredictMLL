@@ -125,24 +125,77 @@ def _resolve_value_side(
     *,
     settings: Settings | None = None,
 ) -> ProfileSide | None:
-    """Mejor EV informativo (raw); decisión usa fair en motores."""
+    """Mejor EV fair accionable; raw solo si no hay mismatch estructural."""
+    from apps.api.services.ev_policy import (
+        format_ev_display,
+        is_actionable_value,
+        is_structural_mismatch,
+    )
+
     settings = settings or get_settings()
     if not market_ctx or not market_ctx.has_market:
         return None
-    positive = [o for o in market_ctx.outcomes if o.ev_raw_pct > 0]
-    if not positive:
-        return None
-    best: OutcomeEdge = max(positive, key=lambda o: o.ev_raw_pct)
-    if best.ev_fair_pct / 100.0 < settings.ev_min_edge_fair and best.ev_raw_pct < 5.0:
-        return None
-    note = "EV raw informativo"
-    if abs(best.ev_raw_pct - best.ev_fair_pct) > 1.0:
-        note += f" (fair {best.ev_fair_pct:+.1f}%)"
+
+    min_ev_pct = settings.ev_min_edge_fair * 100.0
+    candidates: list[OutcomeEdge] = []
+    for o in market_ctx.outcomes:
+        if o.fair_odds is None or o.fair_odds <= 1:
+            continue
+        if not is_actionable_value(
+            o.ev_fair_pct,
+            o.model_prob,
+            o.market_implied,
+            min_ev_fair_pct=min_ev_pct,
+            divergence=o.divergence,
+        ):
+            continue
+        candidates.append(o)
+
+    if not candidates:
+        # Informativo: mejor fair aunque no pase gate (sin etiquetar como value fuerte)
+        informative = [
+            o for o in market_ctx.outcomes if o.fair_odds and o.fair_odds > 1
+        ]
+        if not informative:
+            return None
+        best_inf = max(informative, key=lambda o: o.ev_fair_pct)
+        if best_inf.ev_fair_pct <= 0:
+            return None
+        note = format_ev_display(
+            ev_fair_pct=best_inf.ev_fair_pct,
+            ev_raw_pct=best_inf.ev_raw_pct,
+            odds_decimal=best_inf.market_odds,
+            model_prob=best_inf.model_prob,
+            market_implied=best_inf.market_implied,
+            divergence=best_inf.divergence,
+        )
+        if is_structural_mismatch(
+            best_inf.model_prob, best_inf.market_implied, divergence=best_inf.divergence
+        ):
+            note += " — solo diagnóstico"
+        return ProfileSide(
+            selection=best_inf.selection,
+            display=_display_selection(best_inf.selection, team1, team2),
+            probability=best_inf.model_prob,
+            ev_pct=best_inf.ev_fair_pct,
+            prob_class=classify_probability(best_inf.model_prob),
+            note=note,
+        )
+
+    best = max(candidates, key=lambda o: o.ev_fair_pct)
+    note = format_ev_display(
+        ev_fair_pct=best.ev_fair_pct,
+        ev_raw_pct=best.ev_raw_pct,
+        odds_decimal=best.market_odds,
+        model_prob=best.model_prob,
+        market_implied=best.market_implied,
+        divergence=best.divergence,
+    )
     return ProfileSide(
         selection=best.selection,
         display=_display_selection(best.selection, team1, team2),
         probability=best.model_prob,
-        ev_pct=best.ev_raw_pct,
+        ev_pct=best.ev_fair_pct,
         prob_class=classify_probability(best.model_prob),
         note=note,
     )

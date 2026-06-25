@@ -12,6 +12,8 @@ from apps.worker.tasks.calibrate_models import calibrate_models
 from apps.worker.tasks.clv_snapshots import capture_closing_lines
 from apps.worker.tasks.evaluate import evaluate_pending
 from apps.worker.tasks.ingest import ingest_fixtures
+from apps.worker.tasks.engine_health import check_engine_health
+from apps.worker.tasks.model_learning import wc_learning_cycle
 from apps.worker.tasks.predict import predict_upcoming_matches
 from apps.worker.tasks.train import train_models
 from apps.worker.tasks.update_elo import update_elo_after_finished_matches
@@ -54,6 +56,8 @@ class WorkerSettings:
         update_elo_after_finished_matches,
         audit_wc_data,
         capture_closing_lines,
+        wc_learning_cycle,
+        check_engine_health,
     ]
 
     cron_jobs = [
@@ -65,6 +69,8 @@ class WorkerSettings:
         cron(run_backtest, weekday=0, hour=5, minute=0),
         cron(calibrate_models, weekday=0, hour=4, minute=0),
         cron(capture_closing_lines, hour={5, 11, 17, 23}, minute=45),
+        cron(wc_learning_cycle, hour={2, 14}, minute=20),
+        cron(check_engine_health, hour={3, 9, 15, 21}, minute=10),
     ]
 
     on_startup = startup

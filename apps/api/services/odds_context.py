@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 
 from apps.api.services.worldcup_engine import ModelMarkets, name_match
+from apps.api.services.ev_policy import ev_for_decision, regime_ev_cap
 from apps.worker.ingest.odds_api import OddsApiClient, WC_SPORT
 from apps.worker.ml.odds_math import (
     expected_value_fair,
@@ -281,7 +282,7 @@ def compute_market_context(
                 if market_o and market_o > 1
                 else 0.0
             )
-            edge_fair = round((model_prob - fair_p) * 100, 1) if fair_p else ev_fair
+            edge_pp = round((model_prob - fair_p) * 100, 1) if fair_p else 0.0
             impl = market_implied_prob(market_o) if market_o and market_o > 1 else None
             div = outcome_divergence(model_prob, market_o) if impl is not None else None
             outcomes.append(
@@ -297,7 +298,7 @@ def compute_market_context(
                     fair_implied=round(fair_p, 4) if fair_p else None,
                     ev_fair_pct=ev_fair,
                     ev_raw_pct=ev_raw,
-                    edge_fair_pct=edge_fair,
+                    edge_fair_pct=edge_pp,
                 )
             )
         if outcomes and any(o.market_odds for o in outcomes):
@@ -401,6 +402,11 @@ def _count_bookmakers(event: dict) -> int:
     return len(event.get("bookmakers", []))
 
 
+def _alpha_regime_from_model(model: ModelMarkets) -> str | None:
+    cal = (model.blend_meta or {}).get("calibration") or {}
+    return cal.get("alpha_regime")
+
+
 def compute_ev_opportunities(
     model: ModelMarkets,
     team1: str,
@@ -423,6 +429,7 @@ def compute_ev_opportunities(
 
     h2h_fair = fair_h2h_market(odds_event)
     totals_fair = fair_totals_market(odds_event, 2.5)
+    alpha_regime = _alpha_regime_from_model(model)
 
     candidates: list[EvOpportunity] = []
 
@@ -444,8 +451,10 @@ def compute_ev_opportunities(
         vig = fm["vig_pct"]
 
         edge_fair = model_prob - fair_p
-        ev_fair = expected_value_fair(model_prob, fair_o)
+        ev_raw_calc = expected_value_fair(model_prob, fair_o)
+        ev_fair = ev_for_decision(ev_fair=ev_raw_calc, alpha_regime=alpha_regime)
         ev_raw = expected_value_raw(model_prob, raw_o) if raw_o > 1.0 else 0.0
+        ev_capped = ev_raw_calc > ev_fair
 
         if ev_fair > 0 and edge_fair > 0:
             candidates.append(
@@ -463,6 +472,13 @@ def compute_ev_opportunities(
                     vig_pct=vig,
                     edge_fair=round(edge_fair, 4),
                     expected_value_raw=ev_raw,
+                    metadata={
+                        "prob_source": "calibrated",
+                        "alpha_regime": alpha_regime,
+                        "ev_raw_calc": ev_raw_calc,
+                        "ev_regime_capped": ev_capped,
+                        "ev_cap": regime_ev_cap(alpha_regime),
+                    },
                 )
             )
 

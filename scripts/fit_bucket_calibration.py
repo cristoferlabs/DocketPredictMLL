@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 
+from apps.api.services.live_calibration import calibrate_analysis_model
 from apps.api.services.odds_context import (
     compute_market_context,
     find_wc_odds_event,
@@ -20,6 +22,7 @@ from apps.shared.supabase_client import get_supabase
 from apps.worker.ingest.worldcup_json import fetch_all_worldcup_archives
 from apps.worker.ml.calibration import (
     fit_calibration_bundle,
+    load_fitted_calibration_factors,
     propose_market_tune_candidates,
     save_fitted_calibration_factors,
     seed_buckets_for_market_bias,
@@ -63,7 +66,7 @@ class _MarketAuditSession:
         elif self._api_status.get("ok"):
             print(f"Odds API OK — {len(self._odds_events)} eventos WC (1 request, reutilizado)")
 
-    async def run(self, limit: int = 24) -> FavoriteBiasAudit:
+    async def run(self, limit: int = 24, *, use_live_calibration: bool = False) -> FavoriteBiasAudit:
         await self.ensure_loaded()
         assert self._archives is not None and self._elo is not None
         d26 = self._archives.get(2026, {})
@@ -72,15 +75,23 @@ class _MarketAuditSession:
         db = get_supabase()
         rows = []
         for match in find_upcoming_matches(d26, days_ahead=14)[:limit]:
-            analysis = analyze_match(match, d18, d22, [], self._elo)
-            if not analysis.model:
-                continue
+            t1 = match.get("team1", {})
+            t2 = match.get("team2", {})
+            if isinstance(t1, dict):
+                t1 = t1.get("name", "")
+            if isinstance(t2, dict):
+                t2 = t2.get("name", "")
             odds = await find_wc_odds_event(
-                analysis.team1,
-                analysis.team2,
+                t1,
+                t2,
                 db=db,
                 events_cache=self._odds_events,
             )
+            analysis = analyze_match(match, d18, d22, [], self._elo, odds_event=odds)
+            if not analysis.model:
+                continue
+            if use_live_calibration:
+                calibrate_analysis_model(analysis, odds)
             ctx = compute_market_context(
                 analysis.model, analysis.team1, analysis.team2, odds
             )
@@ -99,8 +110,45 @@ class _MarketAuditSession:
 _SESSION = _MarketAuditSession()
 
 
-async def run_market_audit(limit: int = 24):
-    return await _SESSION.run(limit=limit)
+async def run_market_audit(limit: int = 24, *, use_live_calibration: bool = False):
+    return await _SESSION.run(limit=limit, use_live_calibration=use_live_calibration)
+
+
+def _print_audit_summary(label: str, audit: FavoriteBiasAudit) -> None:
+    print(f"\n=== {label} ===")
+    print(f"favorite_bias_score: {audit.favorite_bias_score:+.3f}")
+    if audit.n_matches:
+        print(
+            f"  compresión fav: {audit.favorite_compression_avg*100:+.1f}pp | "
+            f"inflación empate: {audit.draw_inflation_avg*100:+.1f}pp | "
+            f"inflación dog: {audit.underdog_inflation_avg*100:+.1f}pp"
+        )
+        print(f"  partidos: {audit.n_matches} | outcomes: {audit.n_outcomes}")
+
+
+async def compare_live_calibration_audit(limit: int = 24) -> tuple[FavoriteBiasAudit, FavoriteBiasAudit]:
+    """Compara P_stat vs P_cal sobre mismos partidos/cuotas."""
+    stat = await run_market_audit(limit=limit, use_live_calibration=False)
+    cal = await run_market_audit(limit=limit, use_live_calibration=True)
+    _print_audit_summary("AUDIT P_statistical (modelo base)", stat)
+    _print_audit_summary("AUDIT P_calibrated (live_calibration)", cal)
+    if stat.n_matches and cal.n_matches:
+        print("\n── Delta patch (cal − stat) ──")
+        print(f"  favorite_bias_score: {cal.favorite_bias_score - stat.favorite_bias_score:+.3f}")
+        print(
+            f"  underdog inflation: "
+            f"{(cal.underdog_inflation_avg - stat.underdog_inflation_avg)*100:+.1f}pp"
+        )
+        targets = (
+            ("favorite_bias_score", 0.12, cal.favorite_bias_score),
+            ("underdog_inflation_pp", 5.0, cal.underdog_inflation_avg * 100),
+        )
+        print("\n── Objetivos post-patch ──")
+        for name, target, value in targets:
+            ok = abs(value) < target if name != "underdog_inflation_pp" else abs(value) < target
+            mark = "✓" if ok else "✗"
+            print(f"  {mark} {name}: {value:+.3f} (target < {target})")
+    return stat, cal
 
 
 def _apply_factors(factors: dict) -> None:
@@ -113,12 +161,12 @@ async def tune_step_c(factors: dict, target: float = 0.25, max_iter: int = 40):
     best_factors = copy.deepcopy(factors)
     seeded_buckets = seed_buckets_for_market_bias(
         best_factors.get("1X2_buckets", {}),
-        await run_market_audit(),
+        await run_market_audit(use_live_calibration=True),
     )
     best_factors["1X2_buckets"] = seeded_buckets
     _apply_factors(best_factors)
 
-    best_audit = await run_market_audit()
+    best_audit = await run_market_audit(use_live_calibration=True)
     best_obj = abs(best_audit.favorite_bias_score)
     step_scale = 1.0
     iterations = 0
@@ -139,7 +187,7 @@ async def tune_step_c(factors: dict, target: float = 0.25, max_iter: int = 40):
         accepted = False
         for candidate in candidates:
             _apply_factors(candidate)
-            trial_audit = await run_market_audit()
+            trial_audit = await run_market_audit(use_live_calibration=True)
             trial_obj = abs(trial_audit.favorite_bias_score)
             if trial_obj < best_obj - 1e-5:
                 best_factors = candidate
@@ -173,11 +221,33 @@ async def tune_step_c(factors: dict, target: float = 0.25, max_iter: int = 40):
 
 
 async def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Fit bucket calibration WC")
+    parser.add_argument(
+        "--audit-only",
+        action="store_true",
+        help="Solo comparar P_stat vs P_cal (sin fit ni tune)",
+    )
+    args = parser.parse_args()
+
     if hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8")
         except Exception:
             pass
+
+    if args.audit_only:
+        fitted = load_fitted_calibration_factors()
+        if fitted:
+            set_calibration_factors(fitted)
+        _, cal = await compare_live_calibration_audit()
+        report_path = Path("artifacts/calibration/wc_bucket_audit_report.txt")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(format_audit_report(cal), encoding="utf-8")
+        print(f"\nReporte P_cal: {report_path}")
+        return
+
     print("=== PASO A: Fit isotonic por bucket (WC 2018+2022) ===\n")
     archives = await fetch_all_worldcup_archives()
     factors, _cals, metrics = fit_calibration_bundle(archives, train_years=[2018, 2022])
@@ -187,8 +257,9 @@ async def main() -> None:
     print("1X2_buckets:", factors.get("1X2_buckets", {}))
 
     set_calibration_factors(factors)
-    audit_before = await run_market_audit()
-    print(f"\n=== Tras paso A+B (antes tune C) ===")
+    await compare_live_calibration_audit()
+    audit_before = await run_market_audit(use_live_calibration=True)
+    print(f"\n=== Tras paso A+B (P_cal, antes tune C) ===")
     print(f"favorite_bias_score: {audit_before.favorite_bias_score:+.3f}")
     if audit_before.n_matches:
         print(
@@ -207,7 +278,52 @@ async def main() -> None:
         tuned, audit_after, iters = await tune_step_c(factors, target=0.25, max_iter=30)
 
     set_calibration_factors(tuned)
-    path = save_fitted_calibration_factors(tuned)
+
+    from apps.shared.supabase_client import get_supabase
+    from apps.worker.ml.backtest import evaluate_calibration_holdout_roi
+    from apps.worker.ml.calibration_metrics import load_fitted_model_weights
+    from apps.worker.ml.model_learning import (
+        deploy_calibration_gate,
+        evaluate_live_brier_from_db,
+        load_learning_state,
+    )
+
+    db = get_supabase()
+    live_brier = evaluate_live_brier_from_db(db)
+    weights_art = load_fitted_model_weights() or {}
+    hist_brier = float((weights_art.get("test") or {}).get("brier_1x2", 0.0)) or None
+    bt_roi, bt_details = evaluate_calibration_holdout_roi(archives, tuned, db=db)
+    approved, block_reasons = deploy_calibration_gate(
+        audit=audit_after,
+        live_brier=live_brier,
+        historical_brier=hist_brier,
+        backtest_roi=bt_roi,
+        backtest_roi_details=bt_details,
+    )
+    learning = load_learning_state()
+
+    print(f"\n=== GATE DEPLOY (Fase C) ===")
+    print(f"Holdout ROI (2022): {bt_roi if bt_roi is not None else 'n/d'}")
+    if bt_details.get("bets"):
+        print(f"  bets={bt_details['bets']} hit={bt_details.get('hit_rate')}")
+    print(f"Live Brier (DB): {live_brier if live_brier is not None else 'n/d'}")
+    print(f"Hist Brier test: {hist_brier if hist_brier else 'n/d'}")
+    print(f"Rolling Brier: {learning.rolling_brier}")
+    print(f"Deploy: {'✓ APROBADO' if approved else '✗ BLOQUEADO'}")
+    if block_reasons:
+        for r in block_reasons:
+            print(f"  — {r}")
+
+    if not approved:
+        tuned = dict(tuned)
+        tuned["_deploy_reasons"] = block_reasons
+        path = save_fitted_calibration_factors(tuned, approved=False)
+        set_calibration_factors(load_fitted_calibration_factors())
+        print(f"\nCalibración candidata bloqueada: {path}")
+        print("Runtime sigue con artifact aprobado previo.")
+    else:
+        path = save_fitted_calibration_factors(tuned, approved=True)
+        print(f"\nCalibración activa para runtime.")
 
     print(f"\nIteraciones: {iters}")
     print(f"Score final: {audit_after.favorite_bias_score:+.3f}")

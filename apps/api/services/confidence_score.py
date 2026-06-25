@@ -56,13 +56,16 @@ def compute_unified_confidence(
     score = 0.4 * mds_n + 0.3 * rel + 0.3 * tr
     out = int(max(0, min(100, round(score * 100))))
     if cold_start:
-        out = min(out, 58)
+        # Penalización suave pre-histórico — preserva variabilidad (no cap fijo 58)
+        out = int(max(0, min(100, round(out * 0.96 - 2))))
     return out
 
 
 def sharp_composite_passes(confidence_score: int, *, settings=None) -> bool:
-    """Gate SHARP único — evita correlación MDS + confianza por separado."""
+    """Gate SHARP — en modo portfolio usa umbral relajado para tier B+."""
     from apps.shared.config import get_settings
 
     settings = settings or get_settings()
+    if getattr(settings, "sharp_mode", "portfolio") == "portfolio":
+        return confidence_score >= settings.sharp_portfolio_min_composite
     return confidence_score >= settings.sharp_min_composite

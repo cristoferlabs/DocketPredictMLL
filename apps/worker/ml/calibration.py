@@ -145,15 +145,16 @@ MIN_BUCKET_SAMPLES = 12
 
 
 def classify_team_win_bucket(prob: float, *, match_peak: float | None = None) -> str:
-    """Clasifica P de victoria local/visitante para calibración por bucket."""
+    """Clasifica P de victoria para calibración por bucket (rol real, no slot local)."""
     if prob >= FAVORITE_BUCKET_MIN:
         return "favorite"
-    if match_peak is not None and prob >= match_peak - 1e-9:
-        if prob >= 0.38 or match_peak >= 0.50:
-            return "favorite"
-        return "medium"
     if prob < UNDERDOG_BUCKET_MAX:
         return "underdog"
+    if match_peak is not None and prob >= match_peak - 1e-9:
+        if match_peak >= 0.52 and prob >= 0.45:
+            return "favorite"
+        if match_peak >= 0.48 and prob >= 0.42:
+            return "medium"
     return "medium"
 
 
@@ -314,9 +315,9 @@ def _fix_compressed_favorite(
     """
     raw_peak = max(raw_h, raw_a)
     peak = max(h, a)
-    if raw_peak < 0.36 or peak >= 0.62:
+    if raw_peak < 0.48 or peak >= 0.62:
         return h, d, a
-    target_min = min(0.72, max(0.52, raw_peak + 0.14 + max_lift * 0.35))
+    target_min = min(0.68, max(0.52, raw_peak + 0.10 + max_lift * 0.25))
     if peak >= target_min:
         return h, d, a
     lift = min(max_lift, target_min - peak, max(0.0, 0.64 - raw_peak) * 0.85)
@@ -377,30 +378,63 @@ def apply_bucket_1x2(
 
 
 CALIBRATION_ARTIFACT_PATH = Path("artifacts/calibration/wc_bucket_factors.json")
+CALIBRATION_APPROVED_PATH = Path("artifacts/calibration/wc_bucket_factors.approved.json")
+CALIBRATION_CANDIDATE_PATH = Path("artifacts/calibration/wc_bucket_factors.candidate.json")
 
 
-def save_fitted_calibration_factors(factors: dict[str, Any]) -> Path:
+def save_fitted_calibration_factors(
+    factors: dict[str, Any],
+    *,
+    approved: bool = True,
+) -> Path:
     CALIBRATION_ARTIFACT_PATH.parent.mkdir(parents=True, exist_ok=True)
     import json
 
-    CALIBRATION_ARTIFACT_PATH.write_text(
-        json.dumps(factors, indent=2, ensure_ascii=False),
+    payload = dict(factors)
+    if approved:
+        payload.pop("_deploy_blocked", None)
+        payload.pop("_deploy_reasons", None)
+        CALIBRATION_ARTIFACT_PATH.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        CALIBRATION_APPROVED_PATH.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return CALIBRATION_ARTIFACT_PATH
+
+    payload["_deploy_blocked"] = True
+    CALIBRATION_CANDIDATE_PATH.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
-    return CALIBRATION_ARTIFACT_PATH
+    return CALIBRATION_CANDIDATE_PATH
 
 
 def load_fitted_calibration_factors() -> dict[str, Any]:
-    """Carga factors con buckets desde artifact JSON o defaults paso B."""
+    """Carga factors con buckets; ignora candidatos bloqueados por deploy gate."""
     import json
 
-    if CALIBRATION_ARTIFACT_PATH.exists():
+    def _load_path(path: Path) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
         try:
-            raw = json.loads(CALIBRATION_ARTIFACT_PATH.read_text(encoding="utf-8"))
-            return merge_bucket_config(raw, raw.get("1X2_buckets", DEFAULT_BUCKET_CONFIG))
+            return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
-            pass
-    return _default_factors_with_buckets()
+            return None
+
+    raw = _load_path(CALIBRATION_ARTIFACT_PATH)
+    if raw and raw.get("_deploy_blocked"):
+        raw = None
+    if raw is None:
+        raw = _load_path(CALIBRATION_APPROVED_PATH)
+    if raw is None:
+        return _default_factors_with_buckets()
+    try:
+        return merge_bucket_config(raw, raw.get("1X2_buckets", DEFAULT_BUCKET_CONFIG))
+    except Exception:
+        return _default_factors_with_buckets()
 
 
 def seed_buckets_for_market_bias(buckets: dict[str, Any], audit) -> dict[str, Any]:
@@ -752,13 +786,14 @@ def calibrate_model_markets(
     fbtts = f.get("btts", {})
     buckets = f.get("1X2_buckets")
 
-    h = apply_win_scalar_calibration(home_win, f1x2.get("home_win", 1.0))
-    d = apply_scalar_calibration(draw, f1x2.get("draw", 1.0))
-    a = apply_win_scalar_calibration(away_win, f1x2.get("away_win", 1.0))
-
     if buckets:
+        # Rol por bucket — no aplicar factores escalares por slot home/away (evita sesgo local).
+        h, d, a = home_win, draw, away_win
         h, d, a = apply_bucket_1x2(h, d, a, buckets)
     else:
+        h = apply_win_scalar_calibration(home_win, f1x2.get("home_win", 1.0))
+        d = apply_scalar_calibration(draw, f1x2.get("draw", 1.0))
+        a = apply_win_scalar_calibration(away_win, f1x2.get("away_win", 1.0))
         total = h + d + a
         if total > 0:
             h, d, a = h / total, d / total, a / total

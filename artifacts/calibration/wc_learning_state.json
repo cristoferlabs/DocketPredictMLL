@@ -1,0 +1,18 @@
+{
+  "n_updates": 4,
+  "logit_bias": {
+    "home_win": -0.012856,
+    "draw": 0.088563,
+    "away_win": -0.075715
+  },
+  "rolling_brier_sum": 1.490607,
+  "rolling_brier_n": 4,
+  "rolling_clv_sum": 0.0,
+  "rolling_clv_n": 0,
+  "results_since_retrain": 4,
+  "last_retrain_at": null,
+  "last_update_at": "2026-06-24T23:30:30.186934+00:00",
+  "rolling_brier": 0.372652,
+  "rolling_clv": null,
+  "engine": "model_learning_v1"
+}

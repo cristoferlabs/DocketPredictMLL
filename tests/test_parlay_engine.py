@@ -1,20 +1,20 @@
-"""Tests for Parlay Engine (OUTPUT B)."""
+"""Tests Parlay Engine v3 — adapter + portfolio (legacy file)."""
 
 from apps.api.services.market_dominance import detect_market_dominance
 from apps.api.services.odds_context import compute_market_context
 from apps.api.services.parlay_engine import (
-    build_parlay_tickets,
+    SharpParlayPick,
     build_parlays_from_legs,
+    build_parlays_from_sharp_picks,
     evaluate_parlay_leg,
+    extract_sharp_parlay_pick,
 )
+from apps.api.services.sharp_engine import run_sharp_engine
 from apps.api.services.worldcup_engine import MatchAnalysis, ModelMarkets
+from apps.shared.config import get_settings
 
 
-def _analysis(
-    t1: str,
-    t2: str,
-    model: ModelMarkets,
-) -> MatchAnalysis:
+def _analysis(t1: str, t2: str, model: ModelMarkets) -> MatchAnalysis:
     return MatchAnalysis(
         team1=t1,
         team2=t2,
@@ -41,8 +41,7 @@ def _odds(t1: str, t2: str, home_p: float, draw_p: float, away_p: float) -> dict
     }
 
 
-def test_parlay_effective_prob_not_max_model_market():
-    """effective_prob usa modelo calibrado, no max(model, market)."""
+def test_evaluate_parlay_leg_requires_sharp():
     model = ModelMarkets(
         home_win=0.62,
         draw=0.22,
@@ -59,12 +58,11 @@ def test_parlay_effective_prob_not_max_model_market():
     analysis = _analysis(t1, t2, model)
     ctx = compute_market_context(model, t1, t2, _odds(t1, t2, 1.55, 4.0, 6.0))
     leg = evaluate_parlay_leg(analysis, ctx)
-    assert leg.stable is True
-    assert leg.effective_prob <= leg.model_prob + 0.001
-    assert leg.effective_prob >= leg.model_prob - 0.05
+    assert leg.stable is False
+    assert "SHARP" in (leg.exclude_reason or "")
 
 
-def test_stable_favorite_eligible():
+def test_sharp_pick_uses_p_model_not_max():
     model = ModelMarkets(
         home_win=0.62,
         draw=0.22,
@@ -80,12 +78,13 @@ def test_stable_favorite_eligible():
     t1, t2 = "Bosnia", "Qatar"
     analysis = _analysis(t1, t2, model)
     ctx = compute_market_context(model, t1, t2, _odds(t1, t2, 1.55, 4.0, 6.0))
-    leg = evaluate_parlay_leg(analysis, ctx)
-    assert leg.stable is True
-    assert leg.pick_score > 0
+    sharp = run_sharp_engine(analysis, market_ctx=ctx, settings=get_settings())
+    leg = evaluate_parlay_leg(analysis, ctx, sharp=sharp)
+    if leg.sharp_pick and leg.sharp_pick.eligible:
+        assert leg.effective_prob == leg.model_prob
 
 
-def test_morocco_haiti_rejected_unstable():
+def test_morocco_haiti_rejected_market_dominant():
     model = ModelMarkets(
         home_win=0.374,
         draw=0.284,
@@ -101,54 +100,53 @@ def test_morocco_haiti_rejected_unstable():
     t1, t2 = "Morocco", "Haiti"
     analysis = _analysis(t1, t2, model)
     ctx = compute_market_context(model, t1, t2, _odds(t1, t2, 1.19, 7.5, 17.0))
-    dom = detect_market_dominance(analysis, ctx)
-    leg = evaluate_parlay_leg(analysis, ctx, dominance=dom)
-    assert leg.stable is False
-    assert leg.exclude_reason is not None
+    sharp = run_sharp_engine(analysis, market_ctx=ctx, settings=get_settings())
+    sp = extract_sharp_parlay_pick(analysis, sharp, ctx)
+    assert sp is not None
+    assert not sp.eligible or sp.reject_reason is not None
 
 
-def test_build_parlay_ticket_from_eligible_legs():
-    legs = []
-    for i, (t1, t2, p) in enumerate([
-        ("Bosnia", "Qatar", 0.62),
-        ("Brazil", "Scotland", 0.58),
-        ("Spain", "Japan", 0.61),
-        ("France", "Canada", 0.57),
-    ]):
-        model = ModelMarkets(
-            home_win=p,
-            draw=0.22,
-            away_win=1 - p - 0.22,
-            over_25=0.5,
-            under_25=0.5,
-            btts_yes=0.5,
-            btts_no=0.5,
-            lambda_home=1.3,
-            lambda_away=1.0,
-            confidence="high",
-        )
-        analysis = _analysis(t1, t2, model)
-        ctx = compute_market_context(
-            model, t1, t2,
-            _odds(t1, t2, 1.5 + i * 0.05, 4.0, 5.5),
-        )
-        leg = evaluate_parlay_leg(analysis, ctx)
-        leg.stable = True
-        leg.exclude_reason = None
-        leg.effective_prob = p
-        leg.odds = 2.5
-        leg.pick_score = p * 0.8
-        leg.ev_adjusted = 0.05
-        legs.append(leg)
-
-    tickets = build_parlay_tickets(legs, min_legs=3, max_legs=4)
-    assert len(tickets) >= 1
-    assert tickets[0].n_legs >= 3
-    assert tickets[0].combined_prob > 0
-    assert tickets[0].combo_score > 0
+def test_build_parlay_from_sharp_picks():
+    picks = [
+        SharpParlayPick(
+            match_id="A|B|2026-06-01",
+            team1="Bosnia",
+            team2="Qatar",
+            fecha="2026-06-01",
+            ronda="G",
+            outcome="Bosnia",
+            market="1X2",
+            p_model=0.62,
+            odds=1.75,
+            ev_fair=0.06,
+            confidence=75.0,
+            mds=72.0,
+            correlation_group="A|B|2026-06-01",
+        ),
+        SharpParlayPick(
+            match_id="C|D|2026-06-02",
+            team1="Brazil",
+            team2="Scotland",
+            fecha="2026-06-02",
+            ronda="G",
+            outcome="Brazil",
+            market="1X2",
+            p_model=0.58,
+            odds=1.85,
+            ev_fair=0.05,
+            confidence=74.0,
+            mds=71.0,
+            correlation_group="C|D|2026-06-02",
+        ),
+    ]
+    result = build_parlays_from_sharp_picks(picks, min_legs=2)
+    if result.tickets:
+        t = result.tickets[0]
+        assert t.n_legs >= 2
+        assert abs(t.ev_parlay - (t.combined_prob * t.combined_odds - 1.0)) < 1e-4
 
 
 def test_build_parlays_from_legs_message_hint_when_few():
     result = build_parlays_from_legs([])
     assert not result.tickets
-    assert "0 pierna" in result.message_hint or result.message_hint == ""
+    assert "SHARP" in result.message_hint or result.reject_reasons

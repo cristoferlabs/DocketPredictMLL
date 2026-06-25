@@ -1,0 +1,44 @@
+{
+  "engine": "joint_calibration_v1",
+  "weights": {
+    "lambda_market": 0.2,
+    "mu_clv": 0.1
+  },
+  "market_blend_by_context": {
+    "close": 0.05,
+    "balanced": 0.05,
+    "mismatch": 0.25
+  },
+  "metrics": {
+    "n_total": 154,
+    "n_market": 26,
+    "n_outcome_only": 128,
+    "by_context": {
+      "close": {
+        "beta": 0.05,
+        "joint_loss": 0.9107,
+        "n": 40
+      },
+      "balanced": {
+        "beta": 0.05,
+        "joint_loss": 0.8769,
+        "n": 66
+      },
+      "mismatch": {
+        "beta": 0.25,
+        "joint_loss": 0.8884,
+        "n": 48
+      }
+    },
+    "weight_search": {
+      "lambda_market": 0.2,
+      "mu_clv": 0.1,
+      "market_rows_loss": 0.0263,
+      "n_market": 26
+    },
+    "market_divergence_mean_before": 0.071777,
+    "market_divergence_mean_after": 0.051954,
+    "log_loss_market_rows_before": 0.0,
+    "log_loss_market_rows_after": 0.0
+  }
+}

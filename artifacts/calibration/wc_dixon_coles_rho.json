@@ -1,0 +1,23 @@
+{
+  "close": -0.25,
+  "balanced": 0.04,
+  "mismatch": 0.0,
+  "metrics": {
+    "close": {
+      "n": 33,
+      "rho": -0.25,
+      "log_likelihood": -106.61
+    },
+    "balanced": {
+      "n": 53,
+      "rho": 0.04,
+      "log_likelihood": -151.77
+    },
+    "mismatch": {
+      "n": 42,
+      "rho": 0.0,
+      "note": "no DC on mismatch"
+    }
+  },
+  "engine": "dixon_coles_context_v1"
+}

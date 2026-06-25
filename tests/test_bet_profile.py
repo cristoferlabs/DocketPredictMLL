@@ -58,7 +58,7 @@ def test_scotland_brazil_profile_four_sides():
     ctx = compute_market_context(model, "Scotland", "Brazil", odds)
     dom = detect_market_dominance(analysis, ctx)
     sharp = run_sharp_engine(analysis, market_ctx=ctx, settings=get_settings())
-    parlay = evaluate_parlay_leg(analysis, ctx, dom)
+    parlay = evaluate_parlay_leg(analysis, ctx, dom, sharp=sharp)
 
     profile = build_bet_profile(
         model=model,
@@ -79,12 +79,15 @@ def test_scotland_brazil_profile_four_sides():
 
     assert profile.value_side is not None
     assert profile.value_side.selection == "Scotland"
+    # Fair EV puede ser positivo pero no accionable por Δ estructural
     assert profile.value_side.ev_pct is not None
-    assert profile.value_side.ev_pct > 50
+    assert profile.value_side.note is not None
+    assert "estructural" in profile.value_side.note.lower() or "fair" in profile.value_side.note.lower()
 
     assert profile.parlay_side is not None
     assert profile.parlay_side.selection == "Brazil"
-    assert profile.parlay_side.action == "ELIGIBLE"
+    # v3: Scotland vs Brazil — EV fair negativo → no elegible parlay SHARP
+    assert profile.parlay_side.action in ("RECHAZADO", "N/A")
 
     assert profile.sharp_side is not None
     assert profile.sharp_side.action == "WATCH"

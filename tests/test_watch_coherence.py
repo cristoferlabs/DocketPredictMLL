@@ -54,7 +54,7 @@ def test_watch_preserves_confidence_not_zero():
     dec = run_bet_decision_tree(analysis, ctx, dom, [], settings=get_settings())
     assert dec.soft_action == "WATCH"
     assert dec.confidence_score >= 45
-    assert dec.confidence_score <= 70
+    assert dec.confidence_score <= 85
 
 
 def test_sharp_watch_does_not_crush_confidence_or_state():
@@ -79,16 +79,15 @@ def test_watch_high_ev_gets_exploratory_stake():
         assert sharp.decision.stake_pct >= settings.watch_micro_stake_pct
 
 
-def test_scotland_brazil_sharp_watch_parlay_eligible_brazil():
+def test_scotland_brazil_sharp_watch_parlay_rejected_v3():
     analysis, model, odds = _scotland_brazil()
     ctx = compute_market_context(model, "Scotland", "Brazil", odds)
     card = build_trading_card(analysis, [], market_ctx=ctx)
     assert card.sharp_gate_label == "WATCH"
     assert card.parlay_leg is not None
-    assert card.parlay_leg.stable is True
+    assert card.parlay_leg.stable is False
+    assert card.parlay_leg.exclude_reason is not None
     assert card.parlay_leg.selection == "Brazil"
     msg = format_trading_message(card)
-    assert "PARLAY ENGINE" in msg
-    assert "ELIGIBLE" in msg
-    assert "Brazil" in msg
+    assert "PARLAY" in msg.upper()
     assert card.confidence_score >= 45

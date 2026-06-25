@@ -106,18 +106,11 @@ def archives_before_date(
     return d18, d22, d26
 
 
-def predict_match_historical(
+def _match_feature_bundle(
     match: HistoricalMatch,
     archives: dict[int, dict],
-    *,
-    calibrate: bool = False,
-) -> dict[str, float]:
-    """
-    Model prediction using only data available before match.date (no leakage).
-    Default calibrate=False for honest isotonic/backtest fitting.
-    """
-    from apps.worker.ml.calibration import calibrate_model_markets
-
+) -> dict[str, Any] | None:
+    """Features leak-free para un partido histórico."""
     d18, d22, d26 = archives_before_date(archives, match.date)
     elo = calc_elo_ratings(d18, d22, d26)
 
@@ -142,6 +135,86 @@ def predict_match_historical(
         d22n.get("rounds", []),
         [],
     )
+    return {
+        "lambdas": lambdas,
+        "elo": elo,
+        "year": int(match.competition.replace("wc_", "") or 0),
+    }
+
+
+def predict_match_1x2_components(
+    match: HistoricalMatch,
+    archives: dict[int, dict],
+) -> dict[str, Any] | None:
+    """
+    Poisson y ELO separados (sin blend) — para fit de pesos Fase B.
+    """
+    from apps.worker.ml.elo import EloConfig, predict_match as elo_predict
+    from apps.worker.ml.poisson import outcome_probabilities, predict_match as poisson_predict
+
+    bundle = _match_feature_bundle(match, archives)
+    if not bundle:
+        return None
+
+    lambdas = bundle["lambdas"]
+    elo = bundle["elo"]
+    poisson = poisson_predict(
+        lambdas.lambda_home,
+        lambdas.lambda_away,
+        elo_home=elo.get(match.team1, 1500),
+        elo_away=elo.get(match.team2, 1500),
+    )
+    poisson_1x2 = outcome_probabilities(poisson.score_matrix)
+    elo_p = elo_predict(
+        elo.get(match.team1, 1500),
+        elo.get(match.team2, 1500),
+        EloConfig(),
+    )
+    actual = actual_outcomes(match)
+    return {
+        "team1": match.team1,
+        "team2": match.team2,
+        "year": bundle["year"],
+        "poisson": poisson_1x2,
+        "elo": {
+            "home_win": elo_p.home_win,
+            "draw": elo_p.draw,
+            "away_win": elo_p.away_win,
+        },
+        "label": actual["label_1x2"],
+        "over_25": poisson.over_25,
+        "under_25": poisson.under_25,
+        "btts_yes": poisson.btts_yes,
+        "btts_no": poisson.btts_no,
+    }
+
+
+def predict_match_historical(
+    match: HistoricalMatch,
+    archives: dict[int, dict],
+    *,
+    calibrate: bool = False,
+) -> dict[str, float]:
+    """
+    Model prediction using only data available before match.date (no leakage).
+    Default calibrate=False for honest isotonic/backtest fitting.
+    """
+    from apps.worker.ml.calibration import calibrate_model_markets
+
+    bundle = _match_feature_bundle(match, archives)
+    if not bundle:
+        return {
+            "home_win": 1 / 3,
+            "draw": 1 / 3,
+            "away_win": 1 / 3,
+            "over_25": 0.5,
+            "under_25": 0.5,
+            "btts_yes": 0.5,
+            "btts_no": 0.5,
+        }
+
+    lambdas = bundle["lambdas"]
+    elo = bundle["elo"]
     raw = compute_model_markets(
         lambdas.lambda_home,
         lambdas.lambda_away,

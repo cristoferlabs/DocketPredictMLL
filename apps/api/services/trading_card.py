@@ -216,6 +216,8 @@ def build_trading_card(
         market_ctx,
         dominance,
         injury_report=injury_report,
+        sharp=sharp,
+        ev_opps=ev_opps,
     )
     if sharp.sharp_allowed:
         sharp_gate_label = "BET"

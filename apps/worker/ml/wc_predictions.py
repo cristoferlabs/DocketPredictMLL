@@ -143,18 +143,10 @@ async def evaluate_wc_predictions(db, finished_matches: list[dict] | None = None
             away_goals=res["away_goals"],
         )
 
-        db.schema("ml").table("wc_predictions").update(
-            {
-                "actual_outcome": eval_result["actual_outcome"],
-                "is_correct": eval_result["is_correct"],
-                "brier_score": eval_result["brier_score"],
-                "evaluated_at": now,
-            }
-        ).eq("id", pred["id"]).execute()
-
         from apps.worker.ml.clv import finalize_clv_on_result
+        from apps.worker.ml.model_learning import update_from_wc_evaluation
 
-        finalize_clv_on_result(
+        clv_chain = finalize_clv_on_result(
             db,
             prediction_id=pred["id"],
             team_home=pred["team_home"],
@@ -164,6 +156,42 @@ async def evaluate_wc_predictions(db, finished_matches: list[dict] | None = None
             is_correct=eval_result["is_correct"],
             actual_outcome=eval_result["actual_outcome"],
         )
+
+        meta = pred.get("metadata") or {}
+        model_probs = (meta.get("model_1x2") or meta.get("blend_meta", {}).get("decision"))
+        label_map = {"home_win": 0, "draw": 1, "away_win": 2}
+        actual_label = label_map.get(eval_result["actual_outcome"], 1)
+
+        update_from_wc_evaluation(
+            model_probs=model_probs,
+            predicted_probability=float(pred["probability"]),
+            predicted_outcome=pred["predicted_outcome"],
+            team_home=pred["team_home"],
+            team_away=pred["team_away"],
+            actual_label=actual_label,
+            brier_score=float(eval_result["brier_score"]),
+            clv_vs_close=clv_chain.get("clv_vs_close"),
+        )
+
+        db.schema("ml").table("wc_predictions").update(
+            {
+                "actual_outcome": eval_result["actual_outcome"],
+                "is_correct": eval_result["is_correct"],
+                "brier_score": eval_result["brier_score"],
+                "evaluated_at": now,
+            }
+        ).eq("id", pred["id"]).execute()
+
         evaluated += 1
 
-    return {"evaluated": evaluated}
+    retrain_summary: dict = {"status": "skipped"}
+    if evaluated > 0:
+        try:
+            from apps.worker.ml.model_learning import maybe_retrain_wc_weights
+
+            retrain_summary = await maybe_retrain_wc_weights(db)
+        except Exception as exc:
+            logger.warning("maybe_retrain_wc_weights: %s", exc)
+            retrain_summary = {"status": "error", "detail": str(exc)}
+
+    return {"evaluated": evaluated, "retrain": retrain_summary}

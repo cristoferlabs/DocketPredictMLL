@@ -1,54 +1,42 @@
 📊 AUDIT FAVORITE BIAS
-Muestra: 24 partidos | 72 outcomes
+Muestra: 23 partidos | 69 outcomes
 
-favorite_bias_score: +0.183
+favorite_bias_score: +0.230
   (>0 = mercado más confiado en favoritos que modelo)
 
 ── Magnitudes medias (P_model − P_market) ──
-  Favorite compression: +8.1 pp (mercado − modelo en favoritos >60%)
-  Draw inflation:       -8.4 pp (modelo − mercado en empates)
-  Underdog inflation:   +9.9 pp (modelo − mercado en underdogs <40%)
+  Favorite compression: +11.1 pp (mercado − modelo en favoritos >60%)
+  Draw inflation:       +0.5 pp (modelo − mercado en empates)
+  Underdog inflation:   +3.2 pp (modelo − mercado en underdogs <40%)
 
-1. Sesgo detectado: favorite_compression + underdog_inflation
+1. Sesgo detectado: favorite_compression
 2. Magnitud: moderada
-3. Causa probable: Blend Poisson+ELO (60/40) + draw base Poisson comprimen favoritos fuertes; el mercado incorpora información táctica/informacional que el modelo no ve. Lambdas/xG de selecciones débiles infladas por histórico WC parcial o host boost; el modelo asigna más P a underdogs de lo que el mercado liquida.
-4. Calibración propuesta: Calibrar 1X2: factor home_win/away_win >1.0 en favoritos (P_mkt≥60%) vía isotonic post-hoc o shrink hacia mercado solo en capa calibración. | Penalizar underdog: factor away_win/home_win <1.0 cuando P_model<40% y Δ vs mercado >10pp.
+3. Causa probable: Blend Poisson+ELO (60/40) + draw base Poisson comprimen favoritos fuertes; el mercado incorpora información táctica/informacional que el modelo no ve.
+4. Calibración propuesta: Calibrar 1X2: factor home_win/away_win >1.0 en favoritos (P_mkt≥60%) vía isotonic post-hoc o shrink hacia mercado solo en capa calibración.
 
 ── Detalle agregado ──
   mean_delta_all: 0
   mean_delta_favorite: 0
   mean_delta_draw: 0
   mean_delta_underdog: 0
-  n_favorite_outcomes: 16
-  n_draw_outcomes: 24
-  n_underdog_outcomes: 17
+  n_favorite_outcomes: 12
+  n_draw_outcomes: 23
+  n_underdog_outcomes: 25
 
 ── Top desvíos por partido ──
-  Algeria vs Austria
-    Algeria: model 61.0% | mkt 25.6% | Δ +35.3pp [favorite]
-    Empate: model 15.9% | mkt 43.5% | Δ -27.6pp [draw]
-    Austria: model 23.2% | mkt 35.1% | Δ -11.9pp [underdog]
-  Tunisia vs Netherlands
-    Tunisia: model 28.0% | mkt 4.2% | Δ +23.8pp [underdog]
-    Netherlands: model 55.5% | mkt 90.1% | Δ -34.5pp [favorite]
-  Egypt vs Iran
-    Egypt: model 26.6% | mkt 40.3% | Δ -13.7pp [medium]
-    Empate: model 13.2% | mkt 37.5% | Δ -24.2pp [draw]
-    Iran: model 60.1% | mkt 26.9% | Δ +33.3pp [favorite]
-  Morocco vs Haiti
-    Morocco: model 57.2% | mkt 85.5% | Δ -28.3pp [favorite]
-    Haiti: model 25.4% | mkt 5.7% | Δ +19.7pp [underdog]
+  Curaçao vs Ivory Coast
+    Ivory Coast: model 72.8% | mkt 87.0% | Δ -14.2pp [favorite]
+  New Zealand vs Belgium
+    Belgium: model 72.8% | mkt 86.6% | Δ -13.8pp [favorite]
   Panama vs England
-    Panama: model 27.2% | mkt 6.3% | Δ +20.9pp [underdog]
-    England: model 63.2% | mkt 85.5% | Δ -22.2pp [favorite]
-  Ecuador vs Germany
-    Ecuador: model 60.9% | mkt 25.6% | Δ +35.2pp [favorite]
-    Empate: model 14.0% | mkt 24.6% | Δ -10.6pp [draw]
-    Germany: model 25.1% | mkt 54.0% | Δ -28.9pp [medium]
+    England: model 72.2% | mkt 85.5% | Δ -13.3pp [favorite]
+  Scotland vs Brazil
+    Brazil: model 63.9% | mkt 75.8% | Δ -11.9pp [favorite]
+  Senegal vs Iraq
+    Senegal: model 69.8% | mkt 81.6% | Δ -11.9pp [favorite]
+  2A vs 2B
+    2B: model 64.1% | mkt 75.8% | Δ -11.6pp [favorite]
   South Africa vs South Korea
-    South Africa: model 56.6% | mkt 16.4% | Δ +40.2pp [medium]
-    Empate: model 15.8% | mkt 25.2% | Δ -9.4pp [draw]
-    South Korea: model 27.6% | mkt 62.5% | Δ -34.9pp [favorite]
-  Jordan vs Argentina
-    Jordan: model 25.2% | mkt 6.8% | Δ +18.5pp [underdog]
-    Argentina: model 59.8% | mkt 83.7% | Δ -23.9pp [favorite]
+    South Korea: model 51.4% | mkt 62.7% | Δ -11.3pp [favorite]
+  Morocco vs Haiti
+    Morocco: model 67.8% | mkt 78.7% | Δ -11.0pp [favorite]

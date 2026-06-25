@@ -135,9 +135,13 @@ def compute_ev_band(
     *,
     mus: float,
     market_confidence: float,
+    alpha_regime: str | None = None,
 ) -> EvBand:
-    """Banda EV fair para decisión; pesimista usa fair odds."""
-    base = outcome.ev_fair_pct / 100.0
+    """Banda EV fair para decisión; base con clamp por régimen α."""
+    from apps.api.services.ev_policy import ev_for_decision
+
+    base_raw = outcome.ev_fair_pct / 100.0
+    base = ev_for_decision(ev_fair=base_raw, alpha_regime=alpha_regime)
     optimistic = base
     pick_div = outcome.divergence or 0.0
     if outcome.fair_implied and outcome.fair_odds and outcome.fair_odds > 1:
@@ -167,6 +171,7 @@ def compute_ev_band_from_pick(
     mus: float,
     market_confidence: float,
     ev_base: float,
+    alpha_regime: str | None = None,
 ) -> EvBand:
     outcome = OutcomeEdge(
         selection=selection,
@@ -175,9 +180,10 @@ def compute_ev_band_from_pick(
         market_odds=market_odds,
         edge_pct=ev_base * 100,
         divergence=divergence,
+        ev_fair_pct=ev_base * 100,
     )
     return compute_ev_band(
-        outcome, mus=mus, market_confidence=market_confidence
+        outcome, mus=mus, market_confidence=market_confidence, alpha_regime=alpha_regime
     )
 
 
@@ -190,6 +196,8 @@ def resolve_soft_decision(
     confidence_score: int,
     diagnosis_primary: str | None = None,
     trust: TrustArbitration | None = None,
+    pick_model_prob: float | None = None,
+    pick_market_implied: float | None = None,
 ) -> tuple[SoftBetAction, str]:
     """
     Árbol suave con arbitraje de confianza en desacoples.
@@ -197,6 +205,16 @@ def resolve_soft_decision(
     Ya no aplica regla simétrica «Δ alto = peligro».
     """
     mc = 1.0 - mus
+    market_more_bullish = (
+        pick_market_implied is not None
+        and pick_model_prob is not None
+        and pick_market_implied > pick_model_prob + 0.06
+    )
+    model_more_bullish = (
+        pick_market_implied is not None
+        and pick_model_prob is not None
+        and pick_model_prob > pick_market_implied + 0.06
+    )
 
     if ev_band.base <= 0 and ev_band.optimistic <= 0:
         return "NO_BET", "sin valor"
@@ -205,6 +223,16 @@ def resolve_soft_decision(
 
     if high_discrepancy and trust is not None:
         if trust.trust_side == "model" and ev_band.base >= 0.02:
+            if pick_divergence >= 0.15:
+                if model_more_bullish and ev_band.base >= 0.04 and confidence_score >= 45:
+                    return "WEAK_BET", f"edge modelo vs mercado — {trust.rationale}"
+                return "WATCH", f"pick {pick_divergence*100:.0f}pp — investigar (mercado vs modelo)"
+            if pick_divergence >= 0.12:
+                if market_more_bullish:
+                    return "WATCH", f"mercado más convencido — {pick_divergence*100:.0f}pp"
+                if ev_band.base >= 0.04 and confidence_score >= 50:
+                    return "WEAK_BET", f"edge modelo con divergencia — {trust.rationale}"
+                return "WATCH", f"divergencia {pick_divergence*100:.0f}pp — no STRONG"
             if ev_band.base >= 0.04 and confidence_score >= 40:
                 return "STRONG_BET", f"confiar modelo — {trust.rationale}"
             return "WEAK_BET", f"edge modelo mid-range — {trust.rationale}"
@@ -223,7 +251,7 @@ def resolve_soft_decision(
         return "WATCH", "mismatch — observar"
 
     if mus >= 0.40 and ev_band.pessimistic >= 0.025:
-        if ev_band.base >= 0.05 and confidence_score >= 42:
+        if ev_band.base >= 0.05 and confidence_score >= 42 and pick_divergence < 0.12:
             return "STRONG_BET", "MUS alto + EV pesimista robusto"
         return "WEAK_BET", "MUS alto + EV positivo post-haircut"
 
@@ -240,6 +268,13 @@ def resolve_soft_decision(
 
     if not high_discrepancy and ev_band.base >= 0.04 and confidence_score >= 45:
         return "STRONG_BET", "modelo y mercado alineados"
+    if pick_divergence >= 0.15 and ev_band.base >= 0.02:
+        if market_more_bullish:
+            return "WATCH", f"pick {pick_divergence*100:.0f}pp — investigar"
+        if model_more_bullish and ev_band.base >= 0.03:
+            return "WEAK_BET", f"pick {pick_divergence*100:.0f}pp — value modelo"
+    if pick_divergence >= 0.12 and ev_band.base >= 0.03:
+        return "WEAK_BET", f"Δ {pick_divergence*100:.0f}pp — solo apuesta cautelosa"
     if ev_band.base >= 0.02 and confidence_score >= 35:
         return "WEAK_BET", "EV moderado"
     if ev_band.base > 0:

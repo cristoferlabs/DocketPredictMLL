@@ -190,12 +190,14 @@ def simulate_roi_flat_ev(
     min_edge: float = 0.03,
     flat_stake: float = 1.0,
     db=None,
+    calibration_factors: dict[str, Any] | None = None,
 ) -> tuple[float | None, float | None, dict[str, Any]]:
     """
     Flat-stake simulation on +EV fair 1X2 picks when book odds exist in raw_ingestions.
     Returns (roi, max_drawdown, details). roi=None if no odds matched.
     """
     from apps.shared.config import get_settings
+    from apps.worker.ml.calibration import calibrate_model_markets
     from apps.worker.ml.odds_math import expected_value_fair
 
     odds_index = _load_historical_odds_index(db)
@@ -210,6 +212,18 @@ def simulate_roi_flat_ev(
 
     for m in matches:
         probs = predict_match_historical(m, archives)
+        if calibration_factors:
+            cal = calibrate_model_markets(
+                probs["home_win"],
+                probs["draw"],
+                probs["away_win"],
+                probs["over_25"],
+                probs["under_25"],
+                probs["btts_yes"],
+                probs["btts_no"],
+                factors=calibration_factors,
+            )
+            probs = {**probs, **cal}
         actual = actual_outcomes(m)
         key = f"{m.team1.lower()}|{m.team2.lower()}"
         odds = odds_index.get(key)
@@ -411,3 +425,31 @@ def run_holdout_backtest(
         max_drawdown=max_dd,
         roi_details=roi_details,
     )
+
+
+def evaluate_calibration_holdout_roi(
+    archives: dict[int, dict],
+    factors: dict[str, Any],
+    *,
+    test_years: list[int] | None = None,
+    db=None,
+) -> tuple[float | None, dict[str, Any]]:
+    """
+    ROI sim holdout (WC test_years) con factores de calibración candidatos.
+    Usado por deploy_calibration_gate antes de activar artifact.
+    """
+    test_years = test_years or [2022]
+    test_matches = extract_finished_matches(archives, years=test_years)
+    if not test_matches:
+        return None, {"error": "no test matches", "test_years": test_years}
+    roi, max_dd, details = simulate_roi_flat_ev(
+        archives,
+        test_matches,
+        db=db,
+        calibration_factors=factors,
+    )
+    details = dict(details or {})
+    details["max_drawdown"] = max_dd
+    details["test_years"] = test_years
+    details["n_matches"] = len(test_matches)
+    return roi, details

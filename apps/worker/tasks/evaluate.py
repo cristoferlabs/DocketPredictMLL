@@ -116,6 +116,13 @@ async def evaluate_pending(ctx: dict) -> dict:
     try:
         wc_result = await evaluate_wc_predictions(db)
         result_summary_wc = wc_result
+        if int(wc_result.get("evaluated", 0) or 0) > 0:
+            try:
+                from apps.api.services.engine_health import maybe_notify_engine_health
+
+                await maybe_notify_engine_health(db, settings=settings)
+            except Exception as exc:
+                logger.warning("engine_health notify: %s", exc)
     except Exception as exc:
         logger.warning("evaluate_wc_predictions: %s", exc)
         result_summary_wc = {"evaluated": 0, "error": str(exc)}
