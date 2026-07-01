@@ -13,14 +13,19 @@ from apps.api.services.parlay_engine import (
     extract_sharp_parlay_pick,
     format_parlay_message,
 )
+from apps.api.services.live_stats_service import fetch_live_match_data
+from apps.api.services.safe_combo_engine import build_live_combinations, build_safe_combinations
+from apps.api.services.telegram_terminal.betting_menu import build_betting_menu
 from apps.api.services.telegram_terminal.formatters import (
     build_ranked_picks,
     format_exploration,
     format_full_analysis,
     format_match_dashboard,
     format_opportunities,
+    format_safe_combinations,
 )
 from apps.api.services.telegram_terminal.keyboards import (
+    betting_menu_keyboard,
     dashboard_keyboard,
     exploration_keyboard,
     subview_keyboard,
@@ -136,24 +141,45 @@ class BettingTerminal:
         )
 
     async def get_match_dashboard(
-        self, match: dict, *, historical_accuracy: float | None = None
+        self, match: dict, *, historical_accuracy: float | None = None, match_key_str: str = ""
     ) -> tuple[str, dict]:
         bundle = await self._load_bundle(match, historical_accuracy)
-        text = format_match_dashboard(bundle.analysis, bundle.market_ctx)
-        return text, dashboard_keyboard()
+        text = format_match_dashboard(bundle.analysis, bundle.market_ctx, bundle.ev_opps)
+        return text, dashboard_keyboard(match_key_str)
 
     async def get_opportunities(
-        self, match: dict, *, historical_accuracy: float | None = None
+        self, match: dict, *, historical_accuracy: float | None = None, match_key_str: str = ""
     ) -> tuple[str, dict]:
         bundle = await self._load_bundle(match, historical_accuracy)
         picks = build_ranked_picks(
             bundle.analysis, bundle.ev_opps, bundle.sharp, bundle.market_ctx
         )
         text = format_opportunities(bundle.analysis, picks)
-        return text, subview_keyboard()
+        return text, subview_keyboard(match_key_str)
+
+    async def get_safe_combinations(
+        self, match: dict, *, historical_accuracy: float | None = None, match_key_str: str = ""
+    ) -> tuple[str, dict]:
+        bundle = await self._load_bundle(match, historical_accuracy)
+        if not bundle.analysis.model:
+            return "Modelo no disponible para este partido.", subview_keyboard(match_key_str)
+
+        # Try live data first
+        live_result = await self._try_fetch_live(bundle.analysis.team1, bundle.analysis.team2, bundle.analysis.model)
+
+        if live_result is not None:
+            combos = build_live_combinations(live_result, bundle.analysis.team1, bundle.analysis.team2)
+        else:
+            combos = build_safe_combinations(
+                bundle.analysis.model,
+                bundle.analysis.team1,
+                bundle.analysis.team2,
+            )
+        text = format_safe_combinations(bundle.analysis, combos, live_result=live_result)
+        return text, subview_keyboard(match_key_str)
 
     async def get_parlays(
-        self, match: dict, *, historical_accuracy: float | None = None
+        self, match: dict, *, historical_accuracy: float | None = None, match_key_str: str = ""
     ) -> tuple[str, dict]:
         """Portfolio v3 — scan multi-partido, picks SHARP únicamente."""
         d26, d22, d18, fd = await self._load_worldcup_data()
@@ -187,10 +213,49 @@ class BettingTerminal:
         t2 = match.get("team2", {}).get("name", "")
         header = f"Contexto: {t1} vs {t2}\nParlays multi-partido (QUANT v3)\n"
         text = header + format_parlay_message(result)
-        return text, subview_keyboard()
+        return text, subview_keyboard(match_key_str)
+
+    async def _try_fetch_live(self, team1: str, team2: str, model) -> "LivePoissonResult | None":
+        """Fetch live game state + stats from API-Football and compute live markets. Returns None if not live."""
+        try:
+            from apps.worker.ml.poisson_live import compute_live_markets
+            game_state, live_stats = await fetch_live_match_data(team1, team2)
+            if game_state is None:
+                return None
+            return compute_live_markets(
+                model.lambda_home,
+                model.lambda_away,
+                game_state,
+                live_stats,
+            )
+        except Exception as exc:
+            logger.warning("Live market computation failed: %s", exc)
+            return None
+
+    async def get_betting_menu(
+        self, match: dict, *, historical_accuracy: float | None = None, match_key_str: str = ""
+    ) -> tuple[str, dict]:
+        """Opción E — menú unificado: mercados + combinaciones + recomendación."""
+        bundle = await self._load_bundle(match, historical_accuracy)
+
+        # Detect live match and overlay live Poisson markets
+        live_result = None
+        if bundle.analysis.model:
+            live_result = await self._try_fetch_live(
+                bundle.analysis.team1, bundle.analysis.team2, bundle.analysis.model
+            )
+
+        text = build_betting_menu(
+            analysis=bundle.analysis,
+            ev_opps=bundle.ev_opps,
+            sharp=bundle.sharp,
+            odds_event=bundle.odds_event,
+            live_result=live_result,
+        )
+        return text, betting_menu_keyboard(match_key_str)
 
     async def get_full_analysis(
-        self, match: dict, *, historical_accuracy: float | None = None
+        self, match: dict, *, historical_accuracy: float | None = None, match_key_str: str = ""
     ) -> tuple[str, dict]:
         bundle = await self._load_bundle(match, historical_accuracy)
         text = format_full_analysis(
@@ -199,7 +264,7 @@ class BettingTerminal:
             bundle.sharp,
             bundle.ev_opps,
         )
-        return text, subview_keyboard()
+        return text, subview_keyboard(match_key_str)
 
     async def handle_callback(
         self,
@@ -236,14 +301,33 @@ class BettingTerminal:
             t1 = match.get("team1", {}).get("name", "")
             t2 = match.get("team2", {}).get("name", "")
             fecha = (match.get("date") or "")[:10]
-            ctx["match_key"] = match_key(t1, t2, fecha)
+            mk_str = match_key(t1, t2, fecha)
+            ctx["match_key"] = mk_str
             ctx["matches_cache"] = cache
             ctx["state"] = TerminalState.MATCH_SELECTED.value
-            text, markup = await self.get_match_dashboard(match, historical_accuracy=historical_accuracy)
+            text, markup = await self.get_match_dashboard(
+                match, historical_accuracy=historical_accuracy, match_key_str=mk_str
+            )
             sid = save_session(self.db, chat_id, session_id=sid, context=ctx, intent="match_select")
             return text, markup, ctx, sid
 
-        key = ctx.get("match_key")
+        # For subview callbacks: extract embedded match_key if present.
+        # New format: "t:v:team1|team2|fecha" — the match is self-contained in the button.
+        # Old format (without embedded key): fall back to session match_key.
+        _cb_parts = callback_data.split(":", 2)
+        _embedded_key = (
+            _cb_parts[2]
+            if len(_cb_parts) == 3 and _cb_parts[1] not in ("m", "hoy")
+            else None
+        )
+        # Normalise so the if-branches below compare plain view codes
+        base_cb = f"t:{_cb_parts[1]}" if len(_cb_parts) >= 2 else callback_data
+
+        key = _embedded_key or ctx.get("match_key")
+        if _embedded_key and _embedded_key != ctx.get("match_key"):
+            # Sync session to the match embedded in the button click
+            ctx["match_key"] = _embedded_key
+
         if not key:
             text, markup, cache = await self.get_today_matches()
             ctx["matches_cache"] = cache
@@ -258,27 +342,51 @@ class BettingTerminal:
         if not match:
             return "Partido expirado — usa /hoy de nuevo.", None, ctx, sid
 
-        if callback_data == "t:d":
+        if base_cb == "t:d":
             ctx["state"] = TerminalState.MATCH_SELECTED.value
-            text, markup = await self.get_match_dashboard(match, historical_accuracy=historical_accuracy)
+            text, markup = await self.get_match_dashboard(
+                match, historical_accuracy=historical_accuracy, match_key_str=key
+            )
             sid = save_session(self.db, chat_id, session_id=sid, context=ctx, intent="dashboard")
             return text, markup, ctx, sid
 
-        if callback_data == "t:o":
+        if base_cb == "t:o":
             ctx["state"] = TerminalState.OPPORTUNITIES_VIEW.value
-            text, markup = await self.get_opportunities(match, historical_accuracy=historical_accuracy)
+            text, markup = await self.get_opportunities(
+                match, historical_accuracy=historical_accuracy, match_key_str=key
+            )
             sid = save_session(self.db, chat_id, session_id=sid, context=ctx, intent="opportunities")
             return text, markup, ctx, sid
 
-        if callback_data == "t:p":
+        if base_cb == "t:e":
+            ctx["state"] = TerminalState.OPPORTUNITIES_VIEW.value
+            text, markup = await self.get_betting_menu(
+                match, historical_accuracy=historical_accuracy, match_key_str=key
+            )
+            sid = save_session(self.db, chat_id, session_id=sid, context=ctx, intent="betting_menu")
+            return text, markup, ctx, sid
+
+        if base_cb == "t:c":
             ctx["state"] = TerminalState.PARLAY_VIEW.value
-            text, markup = await self.get_parlays(match, historical_accuracy=historical_accuracy)
+            text, markup = await self.get_safe_combinations(
+                match, historical_accuracy=historical_accuracy, match_key_str=key
+            )
+            sid = save_session(self.db, chat_id, session_id=sid, context=ctx, intent="safe_combos")
+            return text, markup, ctx, sid
+
+        if base_cb == "t:p":
+            ctx["state"] = TerminalState.PARLAY_VIEW.value
+            text, markup = await self.get_parlays(
+                match, historical_accuracy=historical_accuracy, match_key_str=key
+            )
             sid = save_session(self.db, chat_id, session_id=sid, context=ctx, intent="parlay")
             return text, markup, ctx, sid
 
-        if callback_data == "t:a":
+        if base_cb == "t:a":
             ctx["state"] = TerminalState.ANALYSIS_VIEW.value
-            text, markup = await self.get_full_analysis(match, historical_accuracy=historical_accuracy)
+            text, markup = await self.get_full_analysis(
+                match, historical_accuracy=historical_accuracy, match_key_str=key
+            )
             sid = save_session(self.db, chat_id, session_id=sid, context=ctx, intent="analysis")
             return text, markup, ctx, sid
 
@@ -313,13 +421,16 @@ class BettingTerminal:
             return f"No encontré {t1} vs {t2}. Prueba /hoy.", None, context, session_id
         fecha = (match.get("date") or "")[:10]
         ctx = dict(context)
-        ctx["match_key"] = match_key(
+        mk_str = match_key(
             match.get("team1", {}).get("name", t1),
             match.get("team2", {}).get("name", t2),
             fecha,
         )
+        ctx["match_key"] = mk_str
         ctx["state"] = TerminalState.MATCH_SELECTED.value
-        text, markup = await self.get_match_dashboard(match, historical_accuracy=historical_accuracy)
+        text, markup = await self.get_match_dashboard(
+            match, historical_accuracy=historical_accuracy, match_key_str=mk_str
+        )
         sid = save_session(
             self.db,
             chat_id,
@@ -329,6 +440,127 @@ class BettingTerminal:
             inbound_text=f"{t1} vs {t2}",
         )
         return text, markup, ctx, sid
+
+    async def handle_live_command(
+        self,
+        chat_id: str,
+        *,
+        session_id: str | None,
+        context: dict[str, Any],
+        historical_accuracy: float | None = None,
+    ) -> tuple[str, dict | None, dict[str, Any], str | None]:
+        """Show all live WC matches with score, time, and best live combo."""
+        from apps.worker.ingest.api_football import ApiFootballClient
+        from apps.worker.ml.poisson_live import (
+            compute_live_markets,
+            live_game_state_from_api_football,
+            live_stats_from_api_football,
+        )
+
+        _LIVE_CODES = {"1H", "HT", "2H", "ET", "BT", "INT", "LIVE", "P"}
+        _STATUS_LABEL = {
+            "1H": "1ª Parte", "HT": "Descanso",
+            "2H": "2ª Parte", "ET": "Prórroga",
+            "BT": "Desc. Prórroga", "P": "Penaltis",
+        }
+
+        client = ApiFootballClient()
+        try:
+            live_fixtures = await client.get_wc_live_fixtures()
+        except Exception as exc:
+            logger.warning("Live fixtures fetch error: %s", exc)
+            return (
+                "⚠️ No se pudo conectar con la API en vivo. Intenta más tarde.",
+                None, context, session_id,
+            )
+
+        active = [
+            fx for fx in live_fixtures
+            if fx.get("fixture", {}).get("status", {}).get("short", "") in _LIVE_CODES
+        ]
+        if not active:
+            return (
+                "⚪ No hay partidos WC en vivo ahora mismo.\n\nUsa /hoy para ver próximos partidos.",
+                None, context, session_id,
+            )
+
+        d26, _, _, _ = await self._load_worldcup_data()
+        ctx = dict(context)
+        cache_entries: list[dict] = []
+        lines = ["🔴 PARTIDOS EN VIVO — WC 2026\n"]
+
+        for fx in active[:4]:
+            fx_info = fx.get("fixture", {})
+            teams = fx.get("teams", {})
+            goals = fx.get("goals", {})
+            status_info = fx_info.get("status", {})
+
+            api_home = teams.get("home", {}).get("name", "?")
+            api_away = teams.get("away", {}).get("name", "?")
+            g_h = goals.get("home") or 0
+            g_a = goals.get("away") or 0
+            elapsed = status_info.get("elapsed") or 0
+            status_label = _STATUS_LABEL.get(status_info.get("short", ""), "En vivo")
+
+            lines.append(f"⚽ {api_home} {g_h}–{g_a} {api_away}")
+            lines.append(f"   {status_label} | {elapsed}'")
+
+            match = self._find_match_by_teams(d26, api_home, api_away)
+            if match:
+                t1_name = match.get("team1", {}).get("name", api_home) if isinstance(match.get("team1"), dict) else api_home
+                t2_name = match.get("team2", {}).get("name", api_away) if isinstance(match.get("team2"), dict) else api_away
+                cache_entries.append({
+                    "team1": t1_name,
+                    "team2": t2_name,
+                    "fecha": (match.get("date") or "")[:10],
+                    "raw": match,
+                })
+                try:
+                    bundle = await self._load_bundle(match, historical_accuracy)
+                    if bundle.analysis.model:
+                        gs = live_game_state_from_api_football(fx)
+                        fx_id = fx_info.get("id")
+                        try:
+                            raw_stats = await client.get_fixture_statistics(fx_id) if fx_id else []
+                            ls = live_stats_from_api_football(raw_stats) if raw_stats else None
+                        except Exception:
+                            ls = None
+                        live_result = compute_live_markets(
+                            bundle.analysis.model.lambda_home,
+                            bundle.analysis.model.lambda_away,
+                            gs, ls,
+                        )
+                        combos = build_live_combinations(
+                            live_result, bundle.analysis.team1, bundle.analysis.team2
+                        )
+                        if combos:
+                            best = combos[0]
+                            stars = (
+                                "⭐⭐⭐" if best.decision == "STRONG_BET"
+                                else "⭐⭐" if best.decision == "MODERATE_BET"
+                                else "⭐"
+                            )
+                            lines.append(
+                                f"   🔝 {best.leg1_label} + {best.leg2_label} {stars}"
+                                f" — {best.combo_prob * 100:.0f}%"
+                            )
+                except Exception as exc:
+                    logger.debug("Live analysis error %s vs %s: %s", api_home, api_away, exc)
+
+            lines.append("")
+
+        if cache_entries:
+            lines.append("Selecciona un partido para análisis completo:")
+            markup = exploration_keyboard(cache_entries)
+            ctx["matches_cache"] = cache_entries
+        else:
+            lines.append("Escribe [equipo1] vs [equipo2] para análisis completo.")
+            markup = None
+
+        ctx["state"] = TerminalState.EXPLORATION.value
+        ctx["match_key"] = None
+        sid = save_session(self.db, chat_id, session_id=session_id, context=ctx, intent="live")
+        return "\n".join(lines), markup, ctx, sid
 
     @staticmethod
     def is_terminal_callback(data: str) -> bool:

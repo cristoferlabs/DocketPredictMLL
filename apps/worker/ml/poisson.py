@@ -32,6 +32,15 @@ class PoissonPrediction:
     rho: float = 0.0
     dixon_coles_applied: bool = False
     dc_meta: dict[str, Any] = field(default_factory=dict)
+    # Extended totals markets
+    over_05: float = 0.0
+    over_15: float = 0.0
+    over_35: float = 0.0
+    over_45: float = 0.0
+    under_05: float = 0.0
+    under_15: float = 0.0
+    under_35: float = 0.0
+    under_45: float = 0.0
 
 
 def poisson_pmf(k: int, lam: float) -> float:
@@ -138,8 +147,13 @@ def predict_match(
     else:
         matrix = build_score_matrix(lh, la, cfg.max_goals)
 
-    over_25 = float(sum(matrix[i, j] for i in range(cfg.max_goals + 1) for j in range(cfg.max_goals + 1) if i + j > 2))
-    btts_yes = float(sum(matrix[i, j] for i in range(1, cfg.max_goals + 1) for j in range(1, cfg.max_goals + 1)))
+    mg = cfg.max_goals
+    over_05 = float(sum(matrix[i, j] for i in range(mg + 1) for j in range(mg + 1) if i + j > 0))
+    over_15 = float(sum(matrix[i, j] for i in range(mg + 1) for j in range(mg + 1) if i + j > 1))
+    over_25 = float(sum(matrix[i, j] for i in range(mg + 1) for j in range(mg + 1) if i + j > 2))
+    over_35 = float(sum(matrix[i, j] for i in range(mg + 1) for j in range(mg + 1) if i + j > 3))
+    over_45 = float(sum(matrix[i, j] for i in range(mg + 1) for j in range(mg + 1) if i + j > 4))
+    btts_yes = float(sum(matrix[i, j] for i in range(1, mg + 1) for j in range(1, mg + 1)))
 
     max_idx = np.unravel_index(matrix.argmax(), matrix.shape)
 
@@ -158,6 +172,14 @@ def predict_match(
         rho=rho if use_dc else 0.0,
         dixon_coles_applied=use_dc and rho != 0.0,
         dc_meta=dc.to_dict(),
+        over_05=round(over_05, 6),
+        over_15=round(over_15, 6),
+        over_35=round(over_35, 6),
+        over_45=round(over_45, 6),
+        under_05=round(1.0 - over_05, 6),
+        under_15=round(1.0 - over_15, 6),
+        under_35=round(1.0 - over_35, 6),
+        under_45=round(1.0 - over_45, 6),
     )
 
 

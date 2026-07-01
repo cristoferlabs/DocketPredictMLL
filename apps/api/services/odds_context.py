@@ -11,6 +11,7 @@ from apps.worker.ingest.odds_api import OddsApiClient, WC_SPORT
 from apps.worker.ml.odds_math import (
     expected_value_fair,
     expected_value_raw,
+    fair_dc_market,
     fair_h2h_market,
     fair_totals_market,
 )
@@ -428,7 +429,10 @@ def compute_ev_opportunities(
         return []
 
     h2h_fair = fair_h2h_market(odds_event)
-    totals_fair = fair_totals_market(odds_event, 2.5)
+    totals_15_fair = fair_totals_market(odds_event, 1.5)
+    totals_25_fair = fair_totals_market(odds_event, 2.5)
+    totals_35_fair = fair_totals_market(odds_event, 3.5)
+    dc_fair = fair_dc_market(odds_event)
     alpha_regime = _alpha_regime_from_model(model)
 
     candidates: list[EvOpportunity] = []
@@ -437,8 +441,15 @@ def compute_ev_opportunities(
         ("1X2", team1, model.home_win, "home", h2h_fair),
         ("1X2", "Empate", model.draw, "draw", h2h_fair),
         ("1X2", team2, model.away_win, "away", h2h_fair),
-        ("Over/Under 2.5", "Over", model.over_25, "over", totals_fair),
-        ("Over/Under 2.5", "Under", model.under_25, "under", totals_fair),
+        ("Over/Under 1.5", "Over", model.over_15, "over", totals_15_fair),
+        ("Over/Under 1.5", "Under", model.under_15, "under", totals_15_fair),
+        ("Over/Under 2.5", "Over", model.over_25, "over", totals_25_fair),
+        ("Over/Under 2.5", "Under", model.under_25, "under", totals_25_fair),
+        ("Over/Under 3.5", "Over", model.over_35, "over", totals_35_fair),
+        ("Over/Under 3.5", "Under", model.under_35, "under", totals_35_fair),
+        ("Doble Oportunidad", f"1X ({team1}/Empate)", model.dc_home_draw, "home_draw", dc_fair),
+        ("Doble Oportunidad", f"X2 (Empate/{team2})", model.dc_away_draw, "away_draw", dc_fair),
+        ("Doble Oportunidad", f"12 ({team1}/{team2})", model.dc_home_away, "home_away", dc_fair),
     ]
 
     for market, selection, model_prob, key, fair_market in mapping:

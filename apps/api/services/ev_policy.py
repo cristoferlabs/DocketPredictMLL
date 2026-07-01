@@ -38,16 +38,26 @@ def ev_for_decision(
     ev_fair: float,
     ev_raw: float | None = None,
     alpha_regime: str | None = None,
+    model_prob: float | None = None,
+    market_implied: float | None = None,
+    uncertainty_penalty: float = 1.0,
     settings: Any | None = None,
 ) -> float:
-    """EV usado en gates, stake y árbol — con clamp estructural por régimen."""
+    """EV usado en gates, stake y árbol — con shrinkage y clamp estructural."""
     from apps.shared.config import Settings, get_settings
 
     s = settings or get_settings()
+    # Apply uncertainty shrinkage first
+    shrunk = ev_shrinkage(
+        ev_fair,
+        model_prob=model_prob,
+        market_implied=market_implied,
+        uncertainty_penalty=uncertainty_penalty,
+    )
     if not getattr(s, "ev_regime_clamp_enabled", True):
-        return ev_fair
+        return max(0.0, shrunk)
     cap = regime_ev_cap(alpha_regime, settings=s)
-    return min(ev_fair, cap)
+    return max(0.0, min(shrunk, cap))
 
 
 def regime_ev_cap(alpha_regime: str | None, *, settings: Any | None = None) -> float:
@@ -75,6 +85,30 @@ def clamp_ev_by_regime(
     if ev_decimal > cap:
         return cap, True
     return ev_decimal, False
+
+
+def ev_shrinkage(
+    ev_fair: float,
+    *,
+    model_prob: float | None = None,
+    market_implied: float | None = None,
+    uncertainty_penalty: float = 1.0,
+    confidence_score: float = 1.0,
+) -> float:
+    """Aplica shrinkage al EV según incertidumbre del modelo.
+    
+    EV_shrunk = EV × uncertainty_penalty × confidence_factor
+    
+    Donde:
+    - uncertainty_penalty viene de match_diagnostics (BTTS/O/U consistency, etc.)
+    - confidence_factor se reduce cuando modelo y mercado divergen sin ser extremo
+    """
+    confidence_factor = confidence_score
+    if model_prob is not None and market_implied is not None and market_implied > 0:
+        gap = abs(model_prob - market_implied)
+        if 0.05 < gap < 0.20:
+            confidence_factor = 1.0 - (gap - 0.05) * 1.5
+    return ev_fair * uncertainty_penalty * max(0.5, confidence_factor)
 
 
 def edge_for_decision(*, edge_fair: float, edge_raw: float | None = None) -> float:

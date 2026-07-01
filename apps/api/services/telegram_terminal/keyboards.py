@@ -14,32 +14,57 @@ def exploration_keyboard(matches: list[dict]) -> dict:
     return {"inline_keyboard": rows}
 
 
-def dashboard_keyboard() -> dict:
+def _cb(view: str, mk: str) -> str:
+    """Build callback data: embed match_key so each button is self-contained."""
+    return f"t:{view}:{mk}" if mk else f"t:{view}"
+
+
+def dashboard_keyboard(match_key: str = "") -> dict:
     return {
         "inline_keyboard": [
             [
-                {"text": "🎯 Ver opciones", "callback_data": "t:o"},
-                {"text": "💎 Combinadas", "callback_data": "t:p"},
+                {"text": "📊 Apuestas", "callback_data": _cb("e", match_key)},
+                {"text": "🎯 Opciones EV", "callback_data": _cb("o", match_key)},
             ],
             [
-                {"text": "🔬 Análisis técnico", "callback_data": "t:a"},
-                {"text": "📅 Volver a /hoy", "callback_data": "t:hoy"},
+                {"text": "🔄 Combos", "callback_data": _cb("c", match_key)},
+                {"text": "🔬 Análisis", "callback_data": _cb("a", match_key)},
+            ],
+            [
+                {"text": "💎 Parlays", "callback_data": _cb("p", match_key)},
+                {"text": "📅 /hoy", "callback_data": "t:hoy"},
             ],
         ]
     }
 
 
-def subview_keyboard() -> dict:
+def subview_keyboard(match_key: str = "") -> dict:
     return {
         "inline_keyboard": [
             [
-                {"text": "◀ Dashboard", "callback_data": "t:d"},
+                {"text": "◀ Dashboard", "callback_data": _cb("d", match_key)},
                 {"text": "📅 /hoy", "callback_data": "t:hoy"},
             ],
             [
-                {"text": "🎯 Opciones", "callback_data": "t:o"},
-                {"text": "💎 Combinadas", "callback_data": "t:p"},
-                {"text": "🔬 Análisis", "callback_data": "t:a"},
+                {"text": "📊 Apuestas", "callback_data": _cb("e", match_key)},
+                {"text": "🔄 Combos", "callback_data": _cb("c", match_key)},
+                {"text": "🎯 Opciones", "callback_data": _cb("o", match_key)},
+            ],
+        ]
+    }
+
+
+def betting_menu_keyboard(match_key: str = "") -> dict:
+    """Keyboard shown after the full betting menu (t:e view)."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "🔄 Ver combos detalle", "callback_data": _cb("c", match_key)},
+                {"text": "🎯 Opciones EV", "callback_data": _cb("o", match_key)},
+            ],
+            [
+                {"text": "◀ Dashboard", "callback_data": _cb("d", match_key)},
+                {"text": "📅 /hoy", "callback_data": "t:hoy"},
             ],
         ]
     }

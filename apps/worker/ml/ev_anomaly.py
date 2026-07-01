@@ -23,19 +23,20 @@ def kelly_full(probability: float, odds: float) -> float:
     b = odds - 1.0
     q = 1.0 - probability
     kelly = (b * probability - q) / b
-    return round(max(0.0, kelly), 4)
+    # Clamp: negative = no edge, >1 = theoretically full bankroll (unsafe, cap at 100%)
+    return round(max(0.0, min(1.0, kelly)), 4)
 
 
 def fractional_kelly(
     probability: float,
     odds: float,
     kelly_fraction: float | None = None,
-    max_stake: float = 0.25,
 ) -> float:
+    """Kelly fraccional — sin hard cap interno (el caller aplica el tope final)."""
     settings = get_settings()
     frac = kelly_fraction if kelly_fraction is not None else settings.kelly_fraction
     full = kelly_full(probability, odds)
-    return round(min(max_stake, full * frac), 4)
+    return round(full * frac, 4)
 
 
 def check_ev_anomaly(

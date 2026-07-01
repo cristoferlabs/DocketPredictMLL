@@ -202,6 +202,19 @@ class ModelMarkets:
     lambda_away: float
     confidence: str = "medium"
     blend_meta: dict[str, Any] = field(default_factory=dict)
+    # Extended totals
+    over_05: float = 0.0
+    over_15: float = 0.0
+    over_35: float = 0.0
+    over_45: float = 0.0
+    under_05: float = 0.0
+    under_15: float = 0.0
+    under_35: float = 0.0
+    under_45: float = 0.0
+    # Double Chance (derived from calibrated 1X2)
+    dc_home_draw: float = 0.0   # 1X
+    dc_away_draw: float = 0.0   # X2
+    dc_home_away: float = 0.0   # 12
 
 
 @dataclass
@@ -243,31 +256,6 @@ def _anchor_elo_poisson_disagreement(
         return home, draw, away
     return h / total, d / total, a / total
 
-
-def _dampen_low_scoring_favorite(
-    home: float,
-    draw: float,
-    away: float,
-    lambda_home: float,
-    lambda_away: float,
-) -> tuple[float, float, float]:
-    """λ total bajo → menos probabilidad de goleada; cap al favorito."""
-    total_lambda = lambda_home + lambda_away
-    if total_lambda >= 2.50:
-        return home, draw, away
-    peak = max(home, away)
-    if peak <= 0.56:
-        return home, draw, away
-    cap = min(0.60, 0.52 + (total_lambda - 1.8) * 0.08)
-    h, d, a = home, draw, away
-    if h >= a and h > cap:
-        h = cap + (h - cap) * 0.40
-    elif a > h and a > cap:
-        a = cap + (a - cap) * 0.40
-    total = h + d + a
-    if total <= 0:
-        return home, draw, away
-    return h / total, d / total, a / total
 
 
 def compute_model_markets(
@@ -336,18 +324,12 @@ def compute_model_markets(
     home, draw, away = _anchor_elo_poisson_disagreement(
         home, draw, away, elo_home, elo_away, elo_1x2
     )
-    after_anchor = (home, draw, away)
-    home, draw, away = _dampen_low_scoring_favorite(
-        home, draw, away, lambda_home, lambda_away
-    )
     sanity_flags: list[str] = []
     if (
-        abs(after_anchor[0] - blended_home) > 0.005
-        or abs(after_anchor[2] - blended_away) > 0.005
+        abs(home - blended_home) > 0.005
+        or abs(away - blended_away) > 0.005
     ):
         sanity_flags.append("elo_anchor")
-    if abs(home - after_anchor[0]) > 0.005 or abs(away - after_anchor[2]) > 0.005:
-        sanity_flags.append("low_lambda_cap")
 
     fitted_weights: dict[str, Any] | None = None
     joint_meta: dict[str, Any] = {"joint_calibration": False, "applied": False}
@@ -384,6 +366,13 @@ def compute_model_markets(
     else:
         over_25, under_25 = poisson.over_25, poisson.under_25
         btts_yes, btts_no = poisson.btts_yes, poisson.btts_no
+
+    # Comprimir O/U extremos: Poisson es subdispersado vs fútbol real
+    # Auditoría: a prob>0.60, modelo 68-71% vs real 52-56% → -15pp gap
+    from apps.worker.ml.game_state_model import compress_extreme_ou_prob
+    _lam_total = lambda_home + lambda_away
+    over_25 = compress_extreme_ou_prob(over_25, _lam_total)
+    under_25 = compress_extreme_ou_prob(under_25, _lam_total)
 
     from apps.worker.ml.joint_calibration import apply_joint_pricing_calibration
 
@@ -427,6 +416,19 @@ def compute_model_markets(
         lambda_away=lambda_away,
         confidence=confidence,
         blend_meta=blend_meta,
+        # Extended totals from Poisson matrix
+        over_05=round(poisson.over_05, 4),
+        over_15=round(poisson.over_15, 4),
+        over_35=round(poisson.over_35, 4),
+        over_45=round(poisson.over_45, 4),
+        under_05=round(poisson.under_05, 4),
+        under_15=round(poisson.under_15, 4),
+        under_35=round(poisson.under_35, 4),
+        under_45=round(poisson.under_45, 4),
+        # Double Chance from calibrated 1X2
+        dc_home_draw=round(home + draw, 4),
+        dc_away_draw=round(draw + away, 4),
+        dc_home_away=round(home + away, 4),
     )
 
 
@@ -466,11 +468,19 @@ def analyze_match(
     elo_ratings: dict[str, float],
     *,
     odds_event: dict | None = None,
+    understat_xg: dict[str, float] | None = None,
 ) -> MatchAnalysis:
+    """
+    understat_xg: optional {team_name: xg_per_game} from ml.team_season_xg.
+    Callers should pre-fetch via enrich_lambda_from_understat() for both teams.
+    """
     from apps.worker.ml.wc_features import build_match_features
     from apps.worker.ml.joint_calibration import market_fair_1x2_from_event
 
-    features = build_match_features(match, data_2018, data_2022, fd_matches, elo_ratings)
+    features = build_match_features(
+        match, data_2018, data_2022, fd_matches, elo_ratings,
+        understat_xg=understat_xg,
+    )
     t1 = features["team1"]
     t2 = features["team2"]
     lambdas = features["lambdas"]
@@ -516,4 +526,50 @@ def analyze_match(
         historico=features["historico"],
         model=model,
         local_visitante={t1: hf1, t2: hf2},
+    )
+
+
+def live_result_to_model_markets(
+    live: "LivePoissonResult",
+    blend_meta: dict | None = None,
+) -> ModelMarkets:
+    """
+    Convert LivePoissonResult to ModelMarkets for compatibility with existing
+    Telegram terminal, EV engine, and combo engine — no re-calibration needed.
+
+    The live result already conditions all markets on the current score and
+    remaining time, so it can be fed directly into the display/analysis pipeline.
+    """
+    from apps.worker.ml.poisson_live import LivePoissonResult  # local import avoids circular
+
+    return ModelMarkets(
+        home_win=live.home_win,
+        draw=live.draw,
+        away_win=live.away_win,
+        over_25=live.over_25,
+        under_25=live.under_25,
+        btts_yes=live.btts_yes,
+        btts_no=live.btts_no,
+        lambda_home=live.lambda_home_remaining,
+        lambda_away=live.lambda_away_remaining,
+        confidence="live",
+        blend_meta=blend_meta or {
+            "source": "poisson_live",
+            "minutes_remaining": live.minutes_remaining,
+            "game_state": live.game_state_label,
+            "score": f"{live.home_goals}-{live.away_goals}",
+            "intensity_home": live.intensity_home,
+            "intensity_away": live.intensity_away,
+        },
+        over_05=live.over_05,
+        over_15=live.over_15,
+        over_35=live.over_35,
+        over_45=live.over_45,
+        under_05=live.under_05,
+        under_15=live.under_15,
+        under_35=live.under_35,
+        under_45=live.under_45,
+        dc_home_draw=live.dc_home_draw,
+        dc_away_draw=live.dc_away_draw,
+        dc_home_away=live.dc_home_away,
     )

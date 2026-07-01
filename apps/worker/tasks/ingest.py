@@ -16,8 +16,8 @@ from apps.worker.ingest.sportmonks import SportMonksClient
 logger = logging.getLogger(__name__)
 
 DEFAULT_API_FOOTBALL_LEAGUES = [140, 39, 135, 78, 61]
-# Free API-Football plan: seasons 2022–2024 only
-API_FOOTBALL_FREE_MAX_SEASON = 2024
+WC_LEAGUE_ID = 1
+WC_SEASON = 2026
 
 
 async def _get_source_id(db, slug: str) -> str | None:
@@ -86,17 +86,6 @@ async def _ingest_api_football(
     settings = get_settings()
     if not settings.api_football_key:
         return {"source": "api-football", "processed": 0, "errors": ["API_FOOTBALL_KEY not set"]}
-
-    if season > API_FOOTBALL_FREE_MAX_SEASON:
-        return {
-            "source": "api-football",
-            "processed": 0,
-            "skipped": True,
-            "errors": [
-                f"Plan free API-Football: max season {API_FOOTBALL_FREE_MAX_SEASON}. "
-                f"Usa Football-Data para temporada actual o season<={API_FOOTBALL_FREE_MAX_SEASON}."
-            ],
-        }
 
     client = ApiFootballClient()
     normalizer = ApiFootballNormalizer(db, source_id)
@@ -243,11 +232,16 @@ async def ingest_fixtures(
             results.append({"source": "openfootball", "processed": 0, "errors": [str(exc)]})
 
     if "api-football" in active_sources:
-        season_year = season or API_FOOTBALL_FREE_MAX_SEASON
+        season_year = season or date.today().year
         if league_external_id or season:
             results.append(
                 await _ingest_api_football(db, league_external_id, season_year, days_ahead)
             )
+        # Always ingest WC2026 fixtures when running WC competition context
+        if competition_code in (None, "WC"):
+            wc_result = await _ingest_api_football(db, WC_LEAGUE_ID, WC_SEASON, days_ahead)
+            wc_result["source"] = "api-football-wc"
+            results.append(wc_result)
 
     if "odds-api" in active_sources:
         results.append(await _ingest_odds(db))

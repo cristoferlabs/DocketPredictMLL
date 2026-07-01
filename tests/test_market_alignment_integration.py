@@ -116,5 +116,6 @@ def test_bosnia_scenario_no_strong_bet_on_13pp_gap():
         raw_odds=1.37,
     )
     dec = run_bet_decision_tree(analysis, ctx, dom, [opp], settings=get_settings())
-    assert dec.soft_action != "STRONG_BET"
-    assert any("align:" in p for p in dec.tree_path)
+    # edge_fair=4% is too low — tree must block, reason varies by gate reached first
+    assert dec.no_bet is True
+    assert dec.blocked_reason is not None

@@ -10,6 +10,7 @@ from apps.api.services.ev_policy import (
     is_actionable_value,
     is_structural_mismatch,
 )
+from apps.api.services.market_dominance import LAYER_LABELS
 from apps.api.services.pick_quality import format_pick_quality_lines
 from apps.api.services.market_alignment import alignment_status, gap_pp, model_outlier_status
 from apps.api.services.odds_context import EvOpportunity, MarketContext1X2
@@ -75,7 +76,9 @@ def _market_summary(market_ctx: MarketContext1X2 | None, team1: str, team2: str)
 def format_match_dashboard(
     analysis: MatchAnalysis,
     market_ctx: MarketContext1X2 | None,
+    ev_opps: list[EvOpportunity] | None = None,
 ) -> str:
+    from apps.api.services.dc_engine import evaluate_dc
     m = analysis.model
     lines = [
         terminal_header(),
@@ -94,10 +97,29 @@ def format_match_dashboard(
             f"{prob_risk_emoji(m.draw)} Empate: {m.draw*100:.1f}%",
             f"{prob_risk_emoji(m.away_win)} {analysis.team2}: {m.away_win*100:.1f}%",
             "",
+        ]
+    )
+
+    # DC highlight — show X2 and 1X as the safe bet options
+    dc_picks = evaluate_dc(m, ev_opps or [], analysis.team1, analysis.team2)
+    if dc_picks:
+        lines.append("🛡️ DOBLE OPORTUNIDAD (apuestas seguras)")
+        for p in dc_picks[:2]:  # X2 and 1X only
+            has_mkt = p.market_odds > 1.0
+            odds_s = f"@{p.market_odds:.2f}" if has_mkt else f"[f{p.fair_odds:.2f}]"
+            ev_s = f"EV {p.ev_pct:+.1f}%" if has_mkt else "sin cuota mkt"
+            tag = " ← PRINCIPAL" if p.is_primary else ""
+            lines.append(
+                f"  {p.risk_emoji} {p.label}: {p.model_prob*100:.1f}%  {odds_s}  {ev_s}{tag}"
+            )
+        lines.append("")
+
+    lines.extend(
+        [
             "📈 MARKET CONTEXT",
             _market_summary(market_ctx, analysis.team1, analysis.team2),
             "",
-            "Estado: listo para explorar opciones.",
+            "Estado: listo — pulsa 📊 Apuestas para análisis completo.",
         ]
     )
     return "\n".join(lines)
@@ -255,6 +277,79 @@ def format_opportunities(
             )
         lines.append("")
     lines.append("⚠️ Ranking ≠ recomendación de apuesta.")
+    return "\n".join(lines)
+
+
+def format_safe_combinations(
+    analysis: MatchAnalysis,
+    combos: list,
+    live_result=None,
+) -> str:
+    """Format intra-match safe combinations (SafeCombo list from safe_combo_engine)."""
+    fecha = (analysis.fecha or "")[:10]
+    ronda = analysis.ronda or ""
+
+    is_live = live_result is not None
+    combo_title = "🔄 COMBINACIONES EN VIVO" if is_live else "🔄 COMBINACIONES SEGURAS"
+    combo_sub = (
+        "Poisson condicionado al marcador actual · tiempo restante"
+        if is_live else
+        "Prob conjunta exacta (Poisson) · 2 resultados del mismo partido"
+    )
+
+    lines = [
+        terminal_header(),
+        "",
+        f"⚽ {analysis.team1} vs {analysis.team2}",
+        f"📅 {fecha}" + (f" | {ronda}" if ronda else ""),
+        "",
+    ]
+
+    if is_live:
+        g_h, g_a = live_result.home_goals, live_result.away_goals
+        state_label = {
+            "first_half": "1ª Parte",
+            "halftime": "Descanso",
+            "second_half": "2ª Parte",
+            "extra_time": "Prórroga",
+        }.get(live_result.game_state_label, "En Vivo")
+        lines += [
+            f"🔴 {state_label} | {live_result.minutes_remaining} min restantes | {g_h}-{g_a}",
+            "",
+        ]
+
+    lines += [combo_title, combo_sub, ""]
+
+    if not combos:
+        lines.append("Sin combinaciones con ventaja suficiente para este partido.")
+        lines.append("Prueba /hoy para ver otros partidos.")
+        return "\n".join(lines)
+
+    for i, c in enumerate(combos, 1):
+        star = " ⭐ RECOMENDADA" if c.recommended else ""
+        if c.decision == "STRONG_BET":
+            dec_emoji = "🟢"
+        elif c.decision == "MODERATE_BET":
+            dec_emoji = "🟡"
+        else:
+            dec_emoji = "🔴"
+        lines.append(f"📊 COMBINACIÓN {i}: {c.leg1_label} + {c.leg2_label}{star}")
+        lines.append(f"   {c.label1_display}: {c.leg1_prob*100:.1f}%")
+        lines.append(f"   {c.label2_display}: {c.leg2_prob*100:.1f}%")
+        lines.append(f"   Prob combinada: {c.combo_prob*100:.1f}%")
+        lines.append(f"   Fair odds: {c.fair_odds:.2f}")
+        lines.append(f"   Si odds > {c.market_min_odds:.2f} → EV POSITIVO")
+        lines.append(f"   Riesgo: {c.risk}")
+        bd = getattr(c, "score_breakdown", None)
+        if bd is not None:
+            lines.append(f"   {dec_emoji} Decisión: {c.decision}")
+            for dl in bd.detail_lines():
+                lines.append(f"  {dl}")
+        else:
+            lines.append(f"   {dec_emoji} Decisión: {c.decision} (score: {c.score}/100)")
+        lines.append("")
+
+    lines.append("⚠️ Prob conjunta Poisson — correlación real entre piernas del mismo partido.")
     return "\n".join(lines)
 
 

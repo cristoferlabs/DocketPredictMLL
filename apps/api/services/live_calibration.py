@@ -8,6 +8,7 @@ Mercado entra UNA sola vez (α). Shrink usa solo P_stat + P_cal (guard rail).
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -17,6 +18,32 @@ from apps.worker.ml.model_combiner import Probabilities1X2, apply_market_calibra
 from apps.worker.ml.odds_math import fair_h2h_market, fair_totals_market
 
 OUTCOMES_1X2 = ("home_win", "draw", "away_win")
+
+
+def _lambda_from_under25(under_25: float, lam_init: float) -> float:
+    """Solve P(Poisson(λ) ≤ 2) = under_25 via Newton's method."""
+    if under_25 >= 0.995:
+        return 0.05
+    if under_25 <= 0.005:
+        return 7.0
+    lam = max(0.1, min(7.0, lam_init))
+    for _ in range(15):
+        e_lam = math.exp(-lam)
+        cdf2 = e_lam * (1.0 + lam + lam * lam * 0.5)
+        # f'(λ) = -e^(-λ) * λ²/2  (always ≤ 0)
+        deriv = -e_lam * lam * lam * 0.5
+        if abs(deriv) < 1e-12:
+            break
+        lam = max(0.05, min(8.0, lam - (cdf2 - under_25) / deriv))
+    return round(lam, 6)
+
+
+def _recompute_btts_from_lambda(lam_home: float, lam_away: float) -> tuple[float, float]:
+    """BTTS No = P(home=0) + P(away=0) - P(both=0)."""
+    p_h0 = math.exp(-lam_home)
+    p_a0 = math.exp(-lam_away)
+    btts_no = min(0.99, max(0.01, p_h0 + p_a0 - math.exp(-(lam_home + lam_away))))
+    return round(btts_no, 4), round(1.0 - btts_no, 4)
 AlphaRegime = Literal["aligned", "moderate", "high", "extreme"]
 PreAlphaBucket = Literal["favorite_strong", "favorite_medium", "balanced", "underdog"]
 
@@ -429,6 +456,37 @@ def apply_live_calibration(
                 if total_ou > 0:
                     totals_work = {"over_25": over / total_ou, "under_25": under / total_ou}
 
+    # --- Propagate calibrated Under 2.5 → BTTS + lambdas (consistency fix) ---
+    # When the market calibrates Under 2.5, BTTS and the Poisson matrix used by
+    # safe_combo_engine must also update — otherwise the combo stays frozen at
+    # pre-match values even as market odds shift.
+    btts_no = model.btts_no
+    btts_yes = model.btts_yes
+    lam_home_cal = model.lambda_home
+    lam_away_cal = model.lambda_away
+
+    lam_total_orig = model.lambda_home + model.lambda_away
+    under_orig = totals_stat.get("under_25", model.under_25)
+    under_cal = (totals_work or {}).get("under_25", under_orig)
+
+    if lam_total_orig > 0.1 and abs(under_cal - under_orig) > 0.003:
+        lam_total_cal = _lambda_from_under25(under_cal, lam_total_orig)
+        ratio_h = model.lambda_home / lam_total_orig
+        lam_home_cal = round(max(0.1, lam_total_cal * ratio_h), 4)
+        lam_away_cal = round(max(0.1, lam_total_cal * (1.0 - ratio_h)), 4)
+        # Additive delta: anchor to calibrated BTTS level, apply only the Poisson-derived change.
+        # Avoids overwriting calibration factors while keeping directionality correct.
+        btts_no_raw_orig, _ = _recompute_btts_from_lambda(model.lambda_home, model.lambda_away)
+        btts_no_raw_new, _ = _recompute_btts_from_lambda(lam_home_cal, lam_away_cal)
+        delta = btts_no_raw_new - btts_no_raw_orig
+        btts_no = round(min(0.99, max(0.01, model.btts_no + delta)), 4)
+        btts_yes = round(1.0 - btts_no, 4)
+
+    # DC fields from calibrated 1X2 (previously dropped to 0.0 in calibrated output)
+    dc_home_draw = round(p_cal["home_win"] + p_cal["draw"], 4)
+    dc_away_draw = round(p_cal["draw"] + p_cal["away_win"], 4)
+    dc_home_away = round(p_cal["home_win"] + p_cal["away_win"], 4)
+
     meta: dict[str, Any] = {
         "engine": "live_calibration_v3_pre_alpha",
         "alpha": alpha,
@@ -457,12 +515,25 @@ def apply_live_calibration(
         away_win=round(p_cal["away_win"], 4),
         over_25=round(totals_work["over_25"], 4),
         under_25=round(totals_work["under_25"], 4),
-        btts_yes=model.btts_yes,
-        btts_no=model.btts_no,
-        lambda_home=model.lambda_home,
-        lambda_away=model.lambda_away,
+        btts_yes=btts_yes,
+        btts_no=btts_no,
+        lambda_home=lam_home_cal,
+        lambda_away=lam_away_cal,
         confidence=model.confidence,
         blend_meta=blend_meta,
+        # Extended totals preserved from Poisson model (small λ changes don't warrant full recompute)
+        over_05=model.over_05,
+        over_15=model.over_15,
+        over_35=model.over_35,
+        over_45=model.over_45,
+        under_05=model.under_05,
+        under_15=model.under_15,
+        under_35=model.under_35,
+        under_45=model.under_45,
+        # DC recomputed from calibrated 1X2 (previously defaulted to 0.0)
+        dc_home_draw=dc_home_draw,
+        dc_away_draw=dc_away_draw,
+        dc_home_away=dc_home_away,
     )
 
     return LiveCalibrationResult(

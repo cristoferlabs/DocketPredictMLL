@@ -4,17 +4,17 @@
   "mismatch": 0.0,
   "metrics": {
     "close": {
-      "n": 33,
+      "n": 34,
       "rho": -0.25,
-      "log_likelihood": -106.61
+      "log_likelihood": -100.19
     },
     "balanced": {
-      "n": 53,
+      "n": 58,
       "rho": 0.04,
-      "log_likelihood": -151.77
+      "log_likelihood": -168.7
     },
     "mismatch": {
-      "n": 42,
+      "n": 36,
       "rho": 0.0,
       "note": "no DC on mismatch"
     }

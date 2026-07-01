@@ -33,6 +33,7 @@ def load_session(db: Client, chat_id: str) -> tuple[str | None, dict[str, Any]]:
             db.table("telegram_sessions")
             .select("id, context")
             .eq("chat_hash", _chat_hash(chat_id))
+            .order("created_at", desc=True)
             .limit(1)
             .execute()
         )

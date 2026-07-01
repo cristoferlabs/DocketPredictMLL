@@ -48,7 +48,15 @@ def save_wc_prediction(
             )
             .execute()
         )
-        return row.data[0]["id"] if row.data else None
+        pred_id = row.data[0]["id"] if row.data else None
+        # Registrar exposición activa al colocar la apuesta
+        if kelly_stake and kelly_stake > 0 and pred_id:
+            try:
+                from apps.api.services.risk_stake import update_portfolio_after_bet
+                update_portfolio_after_bet(stake_pct=float(kelly_stake))
+            except Exception as exc_p:
+                logger.warning("portfolio placement update: %s", exc_p)
+        return pred_id
     except Exception as exc:
         logger.warning("save_wc_prediction: %s", exc)
         return None
@@ -141,6 +149,8 @@ async def evaluate_wc_predictions(db, finished_matches: list[dict] | None = None
             probability=float(pred["probability"]),
             home_goals=res["home_goals"],
             away_goals=res["away_goals"],
+            team_home=pred["team_home"],
+            team_away=pred["team_away"],
         )
 
         from apps.worker.ml.clv import finalize_clv_on_result
@@ -172,6 +182,21 @@ async def evaluate_wc_predictions(db, finished_matches: list[dict] | None = None
             brier_score=float(eval_result["brier_score"]),
             clv_vs_close=clv_chain.get("clv_vs_close"),
         )
+
+        # Actualizar staking portfolio: libera exposición, actualiza drawdown y CLV
+        stake_pct = float(pred.get("kelly_stake") or 0.0)
+        if stake_pct > 0:
+            try:
+                from apps.api.services.risk_stake import update_portfolio_after_bet
+                prob = float(pred["probability"])
+                pnl = round(stake_pct * (1.0 / prob - 1.0), 4) if eval_result["is_correct"] else -stake_pct
+                update_portfolio_after_bet(
+                    stake_pct=stake_pct,
+                    result_pnl=pnl,
+                    staking_clv=clv_chain.get("clv_vs_close"),
+                )
+            except Exception as exc_p:
+                logger.warning("portfolio resolution update: %s", exc_p)
 
         db.schema("ml").table("wc_predictions").update(
             {

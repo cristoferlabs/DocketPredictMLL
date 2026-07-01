@@ -64,7 +64,7 @@ REGLAS CRITICAS:
 - NUNCA ajustes las probabilidades del modelo para alinearlas con las cuotas.
 - Si modelo y mercado difieren, explica la divergencia; el modelo manda, el mercado informa precio.
 - Formato: secciones con líneas ─────, sin markdown (sin ** ni |).
-- Mercados: 1X2, Over/Under 2.5, BTTS.
+- Mercados: 1X2, Over/Under 1.5, Over/Under 2.5, Over/Under 3.5, BTTS, Doble Oportunidad (1X, X2, 12).
 - Incluye disclaimer probabilístico al final."""
 
 
@@ -109,6 +109,8 @@ class TelegramAgentService:
             return "roi"
         if t.startswith("/hoy") or t.startswith("/partidos"):
             return "today"
+        if t.startswith("/live") or t.startswith("/vivo") or t.startswith("/ahora"):
+            return "live"
         if any(w in t for w in ("predic", "pronost", "analiza", "vs")):
             return "analyze"
         return "general"
@@ -174,6 +176,13 @@ class TelegramAgentService:
             )
             await self.telegram.send_message(chat_id, msg, reply_markup=markup)
             return {"ok": True, "chat_id": chat_id, "sent": True, "terminal": True}
+        elif command == "live":
+            msg, markup, _, session_id = await self.terminal.handle_live_command(
+                chat_id, session_id=session_id, context=session_ctx,
+                historical_accuracy=hist_acc,
+            )
+            await self.telegram.send_message(chat_id, msg, reply_markup=markup)
+            return {"ok": True, "chat_id": chat_id, "sent": True, "terminal": True}
         elif command == "combinada":
             msg = await self._combinada_message()
         elif command == "alta":
@@ -221,7 +230,8 @@ class TelegramAgentService:
         return (
             "🖥️ Betting Terminal v2 — Mundial 2026\n\n"
             "Comandos:\n"
-            "/hoy — Explorar partidos (sin análisis)\n"
+            "/hoy — Explorar próximos partidos\n"
+            "/live — Ver partidos WC en vivo + mejor combo\n"
             "/alta — Scan SHARP multi-partido\n"
             "/combinada — Parlays multi-partido\n"
             "/stats — Brier, CLV, ROI, tiers SHARP\n"

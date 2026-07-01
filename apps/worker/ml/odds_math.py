@@ -201,6 +201,47 @@ def fair_h2h_market(event: dict) -> dict[str, dict[str, float]]:
     return result
 
 
+def fair_dc_market(event: dict) -> dict[str, dict[str, float]]:
+    """
+    Double Chance fair odds derived from the h2h market.
+
+    The Odds API does not provide a doublechance endpoint, so DC is computed
+    arithmetically from the devigged h2h fair probabilities:
+        1X (home_draw)  = fair_p_home + fair_p_draw
+        X2 (away_draw)  = fair_p_draw + fair_p_away
+        12 (home_away)  = fair_p_home + fair_p_away
+
+    raw_odds is 0.0 (no direct book quote) — EV uses fair_odds only.
+    """
+    h2h = fair_h2h_market(event)
+    if not h2h:
+        return {}
+
+    fp_home = h2h.get("home", {}).get("fair_prob", 0.0)
+    fp_draw = h2h.get("draw", {}).get("fair_prob", 0.0)
+    fp_away = h2h.get("away", {}).get("fair_prob", 0.0)
+
+    if not (fp_home > 0 and fp_draw > 0 and fp_away > 0):
+        return {}
+
+    avg_vig = h2h.get("home", {}).get("vig_pct", 0.0)
+
+    def _entry(p: float) -> dict[str, float]:
+        p = min(max(p, 0.001), 0.999)
+        return {
+            "fair_prob": round(p, 6),
+            "fair_odds": round(1.0 / p, 4),
+            "raw_odds": 0.0,
+            "vig_pct": avg_vig,
+        }
+
+    return {
+        "home_draw": _entry(fp_home + fp_draw),
+        "away_draw": _entry(fp_draw + fp_away),
+        "home_away": _entry(fp_home + fp_away),
+    }
+
+
 def fair_totals_market(event: dict, point: float = 2.5) -> dict[str, dict[str, float]]:
     per_book = extract_totals_per_bookmaker(event, point)
     if not per_book:

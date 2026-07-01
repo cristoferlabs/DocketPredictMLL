@@ -57,6 +57,34 @@ async def calibrate_models(ctx: dict) -> dict:
         _finish_job(db, job_id, result)
         return result
 
+    # ── Fase 1A: Re-fit Dixon-Coles ρ por contexto ────────────────────
+    try:
+        from apps.worker.ml.dixon_coles import (
+            fit_rho_by_context_from_archives,
+            save_fitted_rho_by_context,
+        )
+        train_years_dc = [2018, 2022] + ([2026] if len(finished_2026) >= 10 else [])
+        rho_fitted, rho_metrics = fit_rho_by_context_from_archives(archives, train_years=train_years_dc)
+        save_fitted_rho_by_context(rho_fitted, metrics=rho_metrics)
+        logger.info("calibrate_models: DC rho refitted %s", rho_fitted)
+    except Exception as exc:
+        logger.warning("DC rho refit failed: %s", exc)
+
+    # ── Fase 1B: Re-fit joint calibration cuando hay >= 10 filas ─────
+    try:
+        from apps.worker.ml.joint_calibration import (
+            build_joint_training_rows,
+            fit_joint_calibration,
+            save_joint_calibration_model,
+        )
+        joint_rows = build_joint_training_rows(archives, odds_events=[], train_years=train_years_dc)
+        if len(joint_rows) >= 10:
+            joint_model, joint_meta = fit_joint_calibration(joint_rows)
+            save_joint_calibration_model(joint_model)
+            logger.info("calibrate_models: joint calibration refitted n=%d", len(joint_rows))
+    except Exception as exc:
+        logger.warning("Joint calibration refit failed: %s", exc)
+
     # Compare average ECE before vs after on full train set
     matches = extract_finished_matches(archives, years=[2018, 2022])
     p_over, y_over = [], []

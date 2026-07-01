@@ -24,6 +24,12 @@ from apps.shared.config import Settings, get_settings
 
 CorrelationRisk = Literal["low", "medium-low", "medium", "high"]
 
+# ── Risk caps — institutional quant limits ────────────────────────────────────
+_EV_CAP_SINGLE: float = 0.25          # max EV for any single bet output
+_EV_CAP_PARLAY: float = 0.12          # max EV parlay (uncorrelated)
+_EV_CAP_CORRELATED: float = 0.08      # max EV parlay with medium/high corr risk
+_SAME_MARKET_TYPE_PENALTY: float = 0.18  # penalty per repeated market type pair
+
 
 @dataclass(frozen=True)
 class SharpParlayPick:
@@ -241,6 +247,61 @@ def extract_sharp_parlay_pick(
     return sp
 
 
+def extract_dc_parlay_pick(
+    analysis: MatchAnalysis,
+    ev_opps: list[EvOpportunity] | None,
+    *,
+    min_prob: float = 0.55,
+    min_ev: float = 0.02,
+) -> SharpParlayPick | None:
+    """
+    Extract the best DC (Doble Oportunidad) pick as a parlay leg.
+
+    DC legs are lower-odds but higher-probability than 1X2 picks.
+    Only accepts picks with model_prob >= min_prob AND ev_fair >= min_ev.
+    Use alongside extract_sharp_parlay_pick() to build DC-based parlays.
+    """
+    from apps.api.services.dc_engine import DC_MARKET
+
+    if not ev_opps or not analysis.model:
+        return None
+
+    t1, t2 = analysis.team1, analysis.team2
+    fecha = (analysis.fecha or "")[:10]
+
+    dc_candidates = [
+        o for o in ev_opps
+        if o.market == DC_MARKET
+        and o.model_prob >= min_prob
+        and o.expected_value >= min_ev
+    ]
+    if not dc_candidates:
+        return None
+
+    best = max(dc_candidates, key=lambda o: o.expected_value * o.model_prob)
+    odds = (
+        best.raw_odds if best.raw_odds > 1
+        else (best.fair_odds if best.fair_odds > 1 else round(1.0 / best.model_prob, 2))
+    )
+
+    return SharpParlayPick(
+        match_id=_match_id(t1, t2, fecha),
+        team1=t1,
+        team2=t2,
+        fecha=fecha,
+        ronda=analysis.ronda or "",
+        outcome=best.selection,
+        market=DC_MARKET,
+        p_model=round(best.model_prob, 6),
+        odds=round(odds, 4),
+        ev_fair=round(best.expected_value, 6),
+        confidence=70.0,   # DC inherently safer — fixed confidence floor
+        mds=70,
+        correlation_group=_correlation_group(t1, t2, fecha),
+        reject_reason=None,
+    )
+
+
 def sharp_pick_to_parlay_leg(
     pick: SharpParlayPick,
     *,
@@ -349,6 +410,43 @@ def _avg_correlation_score(picks: list[SharpParlayPick]) -> float:
     return _pairwise_penalty_sum(picks) / (n * (n - 1) / 2)
 
 
+def _market_type_key(pick: SharpParlayPick) -> str:
+    """Normalize outcome to a market-type bucket for repeated-market detection."""
+    o = pick.outcome.lower()
+    if "under" in o:
+        return "under"
+    if "over" in o:
+        return "over"
+    if "empate" in o or "draw" in o:
+        return "draw"
+    if "btts" in o or "ambos" in o:
+        return "btts"
+    return f"win:{pick.outcome}"  # team-specific wins are distinct
+
+
+def _market_type_penalty_sum(picks: list[SharpParlayPick]) -> float:
+    """
+    Extra penalty for structurally correlated picks across different matches.
+    Repeated O/U market types share tournament-level scoring environment —
+    treating them as independent (base 0.125) understates true correlation.
+    """
+    total = 0.0
+    keys = [_market_type_key(p) for p in picks]
+    for i in range(len(keys)):
+        for j in range(i + 1, len(keys)):
+            if picks[i].match_id != picks[j].match_id and keys[i] == keys[j]:
+                total += _SAME_MARKET_TYPE_PENALTY
+    return total
+
+
+def _ev_cap_for_risk(risk: CorrelationRisk) -> float:
+    if risk == "high":
+        return _EV_CAP_CORRELATED
+    if risk in ("medium", "medium-low"):
+        return _EV_CAP_PARLAY
+    return _EV_CAP_PARLAY
+
+
 def _correlation_risk_label(score: float) -> CorrelationRisk:
     if score <= 0.25:
         return "low"
@@ -367,6 +465,11 @@ def compute_parlay_metrics(
     """
     Returns:
         p_parlay, odds_parlay, ev_parlay, correlation_adjustment, avg_correlation
+
+    Applies two penalty layers:
+      1. Pairwise structural correlation (same match / shared team)
+      2. Repeated market-type cross-match correlation (multiple unders, etc.)
+    EV is capped by correlation risk to prevent institutional overconfidence.
     """
     p_joint = 1.0
     odds_joint = 1.0
@@ -374,11 +477,23 @@ def compute_parlay_metrics(
         p_joint *= p.p_model
         odds_joint *= max(p.odds, 1.01)
 
+    # Layer 1: structural pairwise penalty
     penalty_sum = _pairwise_penalty_sum(picks)
+    # Layer 2: repeated market type (hidden cross-match correlation)
+    penalty_sum += _market_type_penalty_sum(picks)
+
     correlation_adjustment = math.exp(-penalty_sum)
     p_parlay = p_joint * correlation_adjustment
     ev_parlay = p_parlay * odds_joint - 1.0
+
     avg_corr = _avg_correlation_score(picks)
+    corr_risk = _correlation_risk_label(avg_corr)
+
+    # EV overconfidence cap — institutional limit
+    ev_cap = _ev_cap_for_risk(corr_risk)
+    if ev_parlay > ev_cap:
+        ev_parlay = ev_cap
+
     return (
         round(p_parlay, 6),
         round(odds_joint, 4),
@@ -474,6 +589,10 @@ def _passes_portfolio_rules(
         return False, "correlation too high"
     if not _acceptable_drawdown_risk(ticket.combined_prob, ticket.n_legs):
         return False, "drawdown risk excessive"
+    # Overconfidence guard: individual picks with EV > 30% signal model inflation
+    for p in ticket.sharp_picks:
+        if p.ev_fair > 0.30:
+            return False, f"MODEL OVERCONFIDENCE: {p.team1}v{p.team2} ev={p.ev_fair:.0%}"
     return True, ""
 
 

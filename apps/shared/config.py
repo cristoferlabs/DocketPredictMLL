@@ -6,7 +6,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        protected_namespaces=("settings_",),
+    )
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
@@ -87,7 +92,8 @@ class Settings(BaseSettings):
     sharp_portfolio_top_k: int = 15
     sharp_min_mds: int = 70  # telemetría / display
     sharp_min_confidence: float = 0.70  # telemetría / display
-    sharp_max_stake_pct: float = 2.0
+    sharp_max_stake_pct: float = 2.0          # allocator hard cap (% bankroll)
+    max_stake_display_pct: float = 5.0        # display/recommendation cap (% bankroll)
 
     # WATCH — stake exploratorio (optimistic EV fair, no raw)
     watch_exploratory_ev_threshold: float = 0.05

@@ -23,6 +23,7 @@ from apps.api.services.market_uncertainty import (
     resolve_soft_decision,
 )
 from apps.api.services.trust_arbitration import TrustArbitration, arbitrate_pick_trust
+from apps.api.services.match_diagnostics import run_match_diagnostics
 from apps.api.services.odds_context import (
     EvOpportunity,
     MarketContext1X2,
@@ -299,6 +300,45 @@ def run_bet_decision_tree(
     m = analysis.model
     assert m is not None
 
+    # ── Compute max EV% from EV opportunities (unidad: EV real, no pp) ───
+    # Antes usaba o.edge_fair (gap de probabilidad en pp) — mezclaba unidades
+    # con sharp_engine.py (que usa EV% correctamente) y penalizaba
+    # desproporcionadamente a underdogs. Ver match_diagnostics.py docstring.
+    ev_opps = ev_opps or []
+    max_market_ev_pct = None
+    if ev_opps:
+        max_market_ev_pct = max(
+            (o.expected_value * 100 for o in ev_opps if o.expected_value > 0),
+            default=0.0,
+        )
+
+    min_ev_pct = settings.ev_min_edge_fair * 100
+
+    # ── Match-level diagnostics ──────────────────────────────────────
+    diag = run_match_diagnostics(
+        m,
+        max_market_ev_pct=max_market_ev_pct,
+        min_ev_pct=min_ev_pct,
+    )
+    path.append(
+        f"diag:ev={diag.max_ev_pct:.1f}%"
+        f"|balanced={diag.is_balanced}"
+        f"|btts_ou_incons={diag.btts_ou_inconsistent}"
+        f"|no_bet={diag.no_bet_signal}"
+    )
+
+    if diag.no_bet_signal:
+        assert diag.edge_below_threshold
+        return _no_bet_result(
+            path, f"EV máximo vs mercado {diag.max_ev_pct:.1f}% < {min_ev_pct:.0f}%", analysis, mus=1.0,
+        )
+
+    uncertainty_penalty = diag.btts_ou_penalty if diag.btts_ou_inconsistent else 1.0
+    if diag.is_balanced:
+        uncertainty_penalty = min(uncertainty_penalty, 0.85)
+        path.append("balanced_match:soft_cap")
+    path.append(f"uncertainty_penalty:{uncertainty_penalty:.2f}")
+
     uncertainty = dominance.uncertainty
     mus = uncertainty.mus if uncertainty else 1.0
     mc = uncertainty.confidence_market if uncertainty else 0.0
@@ -313,7 +353,6 @@ def run_bet_decision_tree(
     structural = dominance.layer == "extreme"
     path.append(f"structural_mismatch:{'yes' if structural else 'no'}")
 
-    ev_opps = ev_opps or []
     primary: TradingPick
     extras: list[TradingPick] = []
     source_outcome: OutcomeEdge | None = None
@@ -406,6 +445,9 @@ def run_bet_decision_tree(
         conf_score = int(conf_score * out_mult)
     if penalty:
         conf_score = max(0, conf_score - penalty)
+    if uncertainty_penalty < 1.0:
+        conf_score = int(conf_score * uncertainty_penalty)
+        path.append(f"btts_ou_penalty:{uncertainty_penalty:.2f}")
     path.append(
         f"align:{align_key}({pick_gap:.1f}pp)|outlier:{out_key}|conf:{conf_score}"
     )

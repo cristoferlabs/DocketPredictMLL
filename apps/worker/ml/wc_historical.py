@@ -134,6 +134,7 @@ def _match_feature_bundle(
         d18n.get("rounds", []),
         d22n.get("rounds", []),
         [],
+        match_date=match.date,  # activa corrector híbrido StatsBomb (walk-forward safe)
     )
     return {
         "lambdas": lambdas,

@@ -265,6 +265,12 @@ def deploy_calibration_gate(
     if state.rolling_brier is not None and state.rolling_brier > max_live_brier:
         reasons.append(f"rolling_brier {state.rolling_brier:.4f} > {max_live_brier}")
 
+    # CLV negativo sostenido = modelo pierde contra el mercado sistemáticamente
+    if state.rolling_clv is not None and state.rolling_clv_n >= 15 and state.rolling_clv < -0.02:
+        reasons.append(
+            f"model_rolling_clv {state.rolling_clv:.4f} < -0.02 (n={state.rolling_clv_n})"
+        )
+
     if backtest_roi is not None and backtest_roi < min_roi:
         bets = (backtest_roi_details or {}).get("bets", 0)
         reasons.append(
