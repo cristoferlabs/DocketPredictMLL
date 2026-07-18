@@ -50,8 +50,9 @@ def test_opportunities_shows_all_outcomes_with_odds():
     sharp = run_sharp_engine(analysis, market_ctx=ctx, settings=get_settings())
     picks = build_ranked_picks(analysis, [], sharp, ctx)
     text = format_opportunities(analysis, picks)
-    assert "EV fair" in text
-    assert "@" in text or "sin cuota" in text
+    # Picks always display model prob and odds (real market @ or fair [f])
+    assert "model" in text
+    assert "@" in text or "[f" in text or "sin cuota" in text
     assert len(picks) >= 3
 
 

@@ -77,6 +77,8 @@ def format_match_dashboard(
     analysis: MatchAnalysis,
     market_ctx: MarketContext1X2 | None,
     ev_opps: list[EvOpportunity] | None = None,
+    home_team_stats=None,
+    away_team_stats=None,
 ) -> str:
     from apps.api.services.dc_engine import evaluate_dc
     m = analysis.model
@@ -99,6 +101,60 @@ def format_match_dashboard(
             "",
         ]
     )
+
+    # Goals + stats markets — shown in every dashboard
+    from apps.api.services.match_stats_engine import predict_stats_markets
+    try:
+        elo_h = (analysis.elo or {}).get(analysis.team1, {}).get("rating", 1500.0)
+        elo_a = (analysis.elo or {}).get(analysis.team2, {}).get("rating", 1500.0)
+        stats = predict_stats_markets(
+            m.lambda_home, m.lambda_away, elo_h, elo_a,
+            home_team_stats=home_team_stats,
+            away_team_stats=away_team_stats,
+        )
+    except Exception:
+        stats = None
+
+    lines.extend(
+        [
+            "📐 GOLES",
+            f"Over 2.5: {m.over_25*100:.1f}%  |  Under 2.5: {m.under_25*100:.1f}%",
+            f"Over 1.5: {m.over_15*100:.1f}%  |  Over 3.5: {m.over_35*100:.1f}%",
+            f"BTTS Sí: {m.btts_yes*100:.1f}%  |  BTTS No: {m.btts_no*100:.1f}%",
+            "",
+        ]
+    )
+    if stats:
+        source_tag = "API-Football WC2026" if (home_team_stats and away_team_stats) else "Poisson WC avg"
+        ht = home_team_stats
+        at = away_team_stats
+        team1_s = analysis.team1[:7]
+        team2_s = analysis.team2[:7]
+        lines.extend(
+            [
+                f"🔢 STATS EST. ({source_tag})",
+                f"Tiros arco: {stats.shots_on_target_home:.1f} / {stats.shots_on_target_away:.1f}  (total ~{stats.lambda_sot:.1f})",
+                f"SoT Over 8.5: {stats.sot_over_85*100:.0f}%  |  SoT Over 7.5: {stats.sot_over_75*100:.0f}%",
+                f"Corners Over 9.5: {stats.corners_over_95*100:.0f}%  |  Under 9.5: {stats.corners_under_95*100:.0f}%",
+                f"Corners Over 10.5: {stats.corners_over_105*100:.0f}%  |  λ~{stats.lambda_corners:.1f}",
+                f"Tarjetas Over 3.5: {stats.cards_over_35*100:.0f}%  |  λ~{stats.lambda_cards:.1f}",
+            ]
+        )
+        if ht and at:
+            lines.append(
+                f"  {team1_s}: SoT {ht.avg_shots_on_target:.1f}, {ht.avg_corners:.1f} crns, "
+                f"{ht.avg_yellow_cards:.1f}Y  |  "
+                f"{team2_s}: SoT {at.avg_shots_on_target:.1f}, {at.avg_corners:.1f} crns, "
+                f"{at.avg_yellow_cards:.1f}Y  (n={ht.matches_played}g)"
+            )
+        lines.append("")
+    else:
+        lines.extend(
+            [
+                f"λ {analysis.team1[:6]}: {m.lambda_home:.2f}  |  λ {analysis.team2[:6]}: {m.lambda_away:.2f}",
+                "",
+            ]
+        )
 
     # DC highlight — show X2 and 1X as the safe bet options
     dc_picks = evaluate_dc(m, ev_opps or [], analysis.team1, analysis.team2)
@@ -148,6 +204,8 @@ def build_ranked_picks(
     ev_opps: list[EvOpportunity],
     sharp: SharpBetResult | None,
     market_ctx: MarketContext1X2 | None,
+    home_team_stats=None,
+    away_team_stats=None,
 ) -> list[RankedPick]:
     """Tabla EV por outcome — fair primero, cuota explícita, todos los desenlaces 1X2."""
     picks: list[RankedPick] = []
@@ -229,6 +287,87 @@ def build_ranked_picks(
             )
         )
 
+    # Add model-based goals/BTTS picks when not already covered by ev_opps
+    model = analysis.model
+    if model:
+        _goal_markets = [
+            ("Over 2.5",  "Over/Under 2.5",  model.over_25),
+            ("Under 2.5", "Over/Under 2.5",  model.under_25),
+            ("Over 1.5",  "Over/Under 1.5",  model.over_15),
+            ("Under 1.5", "Over/Under 1.5",  model.under_15),
+            ("BTTS Sí",   "BTTS",            model.btts_yes),
+            ("BTTS No",   "BTTS",            model.btts_no),
+        ]
+        ev_opp_keys = {(o.market, o.selection) for o in ev_opps}
+        for lbl, mkt, prob in _goal_markets:
+            if lbl in seen:
+                continue
+            sel_key = lbl.split()[1] if len(lbl.split()) > 1 else lbl  # "Over" / "Under" / "Sí" / "No"
+            if (mkt, sel_key) in ev_opp_keys or (mkt, lbl) in ev_opp_keys:
+                continue  # already added from ev_opps with real market data
+            if prob <= 0:
+                continue
+            fair_o = round(1.0 / prob, 2)
+            shots_note = ""
+            if lbl.startswith("Over") or lbl.startswith("Under"):
+                shots_note = f" · fair {fair_o:.2f}"
+            picks.append(
+                RankedPick(
+                    label=lbl,
+                    market=mkt,
+                    ev_fair_pct=0.0,
+                    ev_raw_pct=None,
+                    confidence=int(prob * 100),
+                    risk=_risk_from_prob(prob),
+                    model_prob=prob,
+                    market_implied=None,
+                    odds_decimal=fair_o,
+                    edge_pp=None,
+                    actionable=False,
+                    note=f"Prob modelo{shots_note} · busca cuota > {fair_o:.2f}",
+                )
+            )
+
+    # Add stats market picks (Corners / SoT / Cards) from Poisson or real API-Football data
+    if model:
+        try:
+            from apps.api.services.match_stats_engine import predict_stats_markets
+            elo_h = (analysis.elo or {}).get(analysis.team1, {}).get("rating", 1500.0)
+            elo_a = (analysis.elo or {}).get(analysis.team2, {}).get("rating", 1500.0)
+            stats = predict_stats_markets(
+                model.lambda_home, model.lambda_away, elo_h, elo_a,
+                home_team_stats=home_team_stats,
+                away_team_stats=away_team_stats,
+            )
+            _stats_picks = [
+                ("Corners Over 9.5",  "Corners",  stats.corners_over_95),
+                ("Corners Under 9.5", "Corners",  stats.corners_under_95),
+                ("SoT Over 8.5",      "SoT",      stats.sot_over_85),
+                ("Tarjetas Over 3.5", "Tarjetas", stats.cards_over_35),
+            ]
+            for lbl, mkt, prob in _stats_picks:
+                if lbl in seen or prob <= 0:
+                    continue
+                fair_o = round(1.0 / prob, 2)
+                picks.append(
+                    RankedPick(
+                        label=lbl,
+                        market=mkt,
+                        ev_fair_pct=0.0,
+                        ev_raw_pct=None,
+                        confidence=int(prob * 100),
+                        risk=_risk_from_prob(prob),
+                        model_prob=prob,
+                        market_implied=None,
+                        odds_decimal=fair_o,
+                        edge_pp=None,
+                        actionable=False,
+                        note=f"Poisson est. · busca cuota > {fair_o:.2f}",
+                    )
+                )
+        except Exception:
+            pass
+
     picks.sort(key=lambda x: (-x.ev_fair_pct, -x.model_prob))
     return picks
 
@@ -250,11 +389,16 @@ def format_opportunities(
         lines.append("Revisa análisis técnico.")
         return "\n".join(lines)
 
-    lines.append("EV = (p_model × cuota) − 1 | fair = devig")
+    lines.append("EV = (p_model × cuota) − 1 | [f] = fair sin mercado")
     lines.append("")
-    for i, p in enumerate(picks[:6], 1):
+    for i, p in enumerate(picks[:9], 1):
         tag = "✓" if p.actionable else "·"
-        odds_s = f"@ {p.odds_decimal:.2f}" if p.odds_decimal and p.odds_decimal > 1 else "sin cuota"
+        if p.market_implied and p.odds_decimal and p.odds_decimal > 1:
+            odds_s = f"@ {p.odds_decimal:.2f}"  # real market quote
+        elif p.odds_decimal and p.odds_decimal > 1:
+            odds_s = f"[f{p.odds_decimal:.2f}]"  # fair model odds, no market
+        else:
+            odds_s = "sin cuota"
         mkt_s = f"mkt {p.market_implied*100:.1f}%" if p.market_implied else "mkt n/d"
         lines.append(f"{tag} {i}. {p.label}")
         lines.append(

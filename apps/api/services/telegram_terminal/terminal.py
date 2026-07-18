@@ -144,7 +144,11 @@ class BettingTerminal:
         self, match: dict, *, historical_accuracy: float | None = None, match_key_str: str = ""
     ) -> tuple[str, dict]:
         bundle = await self._load_bundle(match, historical_accuracy)
-        text = format_match_dashboard(bundle.analysis, bundle.market_ctx, bundle.ev_opps)
+        text = format_match_dashboard(
+            bundle.analysis, bundle.market_ctx, bundle.ev_opps,
+            home_team_stats=bundle.home_team_stats,
+            away_team_stats=bundle.away_team_stats,
+        )
         return text, dashboard_keyboard(match_key_str)
 
     async def get_opportunities(
@@ -152,7 +156,9 @@ class BettingTerminal:
     ) -> tuple[str, dict]:
         bundle = await self._load_bundle(match, historical_accuracy)
         picks = build_ranked_picks(
-            bundle.analysis, bundle.ev_opps, bundle.sharp, bundle.market_ctx
+            bundle.analysis, bundle.ev_opps, bundle.sharp, bundle.market_ctx,
+            home_team_stats=bundle.home_team_stats,
+            away_team_stats=bundle.away_team_stats,
         )
         text = format_opportunities(bundle.analysis, picks)
         return text, subview_keyboard(match_key_str)
@@ -251,6 +257,10 @@ class BettingTerminal:
             sharp=bundle.sharp,
             odds_event=bundle.odds_event,
             live_result=live_result,
+            home_team_stats=bundle.home_team_stats,
+            away_team_stats=bundle.away_team_stats,
+            stats_odds=bundle.stats_odds,
+            db=self.db,
         )
         return text, betting_menu_keyboard(match_key_str)
 

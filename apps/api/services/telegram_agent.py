@@ -103,6 +103,8 @@ class TelegramAgentService:
             return "alta"
         if t.startswith("/combinada") or t.startswith("/parlay") or t.startswith("/combo"):
             return "combinada"
+        if t.startswith("/calibraci") or t.startswith("/calib"):
+            return "calibracion"
         if t.startswith("/stats"):
             return "stats"
         if t.startswith("/roi"):
@@ -166,6 +168,8 @@ class TelegramAgentService:
 
         if command == "help":
             msg = self._help_text()
+        elif command == "calibracion":
+            msg = await self._calibracion_message()
         elif command == "stats":
             msg = await self._stats_message()
         elif command == "roi":
@@ -234,6 +238,7 @@ class TelegramAgentService:
             "/live — Ver partidos WC en vivo + mejor combo\n"
             "/alta — Scan SHARP multi-partido\n"
             "/combinada — Parlays multi-partido\n"
+            "/calibracion — Calibración por mercado (hit-rate vs modelo)\n"
             "/stats — Brier, CLV, ROI, tiers SHARP\n"
             "/roi — ROI live + backtest (compacto)\n"
             "Colombia vs Brasil — Dashboard del partido\n\n"
@@ -865,6 +870,19 @@ class TelegramAgentService:
     def _template_analysis(self, data: dict) -> str:
         card = build_trading_card_from_dict(data)
         return format_trading_message(card)
+
+    async def _calibracion_message(self) -> str:
+        """Calibración por mercado: hit-rate vs prob modelo (últimos 90d)."""
+        try:
+            from apps.api.services.picks_tracker import (
+                format_calibration_report,
+                get_calibration_report,
+            )
+            rows = get_calibration_report(self.db, days=90)
+            return format_calibration_report(rows, days=90)
+        except Exception as exc:
+            logger.warning("calibracion_report: %s", exc)
+            return f"📊 Calibración — error.\nDetalle: {exc}"
 
     async def _stats_message(self) -> str:
         """Dashboard cuant: Brier, CLV, ROI, tiers SHARP."""

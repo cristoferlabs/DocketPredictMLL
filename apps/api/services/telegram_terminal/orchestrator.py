@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,6 +10,13 @@ from supabase import Client
 
 from apps.api.services.injury_news import InjuryReport, fetch_injury_report
 from apps.api.services.live_calibration import calibrate_analysis_model
+from apps.api.services.team_wc_stats_service import (
+    StatsOdds,
+    TeamWCStats,
+    find_fixture_id,
+    get_match_team_stats,
+    get_stats_market_odds,
+)
 from apps.api.services.odds_context import (
     EvOpportunity,
     MarketContext1X2,
@@ -37,6 +45,10 @@ class MatchBundle:
     parlay_result: ParlayBuildResult | None = None
     injury: InjuryReport | None = None
     odds_event: dict | None = None
+    home_team_stats: TeamWCStats | None = None
+    away_team_stats: TeamWCStats | None = None
+    api_football_fixture_id: int | None = None
+    stats_odds: StatsOdds | None = None
 
 
 async def load_match_bundle(
@@ -85,7 +97,17 @@ async def load_match_bundle(
             single_best=False,
         )
 
-    injury = await fetch_injury_report(analysis.team1, analysis.team2)
+    (injury, (home_team_stats, away_team_stats), api_football_fixture_id) = await asyncio.gather(
+        fetch_injury_report(analysis.team1, analysis.team2),
+        get_match_team_stats(analysis.team1, analysis.team2),
+        find_fixture_id(analysis.team1, analysis.team2),
+    )
+    stats_odds: StatsOdds | None = None
+    if api_football_fixture_id:
+        try:
+            stats_odds = await get_stats_market_odds(api_football_fixture_id)
+        except Exception as exc:
+            logger.warning("get_stats_market_odds: %s", exc)
 
     sharp = run_sharp_engine(
         analysis,
@@ -116,4 +138,8 @@ async def load_match_bundle(
         parlay_result=parlay_result,
         injury=injury,
         odds_event=odds_event,
+        home_team_stats=home_team_stats,
+        away_team_stats=away_team_stats,
+        api_football_fixture_id=api_football_fixture_id,
+        stats_odds=stats_odds,
     )

@@ -5,14 +5,14 @@
   "underdog_dampen_factor": 1.0,
   "train": {
     "n_samples": 128,
-    "brier_1x2": 0.642306,
-    "log_loss_1x2": 1.066236,
-    "ece_max_prob": 0.078295,
+    "brier_1x2": 0.643458,
+    "log_loss_1x2": 1.066849,
+    "ece_max_prob": 0.095935,
     "hit_rate_1x2": 0.4219,
     "brier_by_outcome": {
-      "home_win": 0.23455,
-      "draw": 0.178346,
-      "away_win": 0.229409
+      "home_win": 0.236786,
+      "draw": 0.178406,
+      "away_win": 0.228265
     },
     "reliability_bins": [
       {
@@ -35,32 +35,32 @@
         "bin": 2,
         "lo": 0.25,
         "hi": 0.375,
-        "count": 10,
-        "mean_pred": 0.3543,
-        "mean_outcome": 0.3
+        "count": 7,
+        "mean_pred": 0.3547,
+        "mean_outcome": 0.2857
       },
       {
         "bin": 3,
         "lo": 0.375,
         "hi": 0.5,
-        "count": 84,
-        "mean_pred": 0.4313,
-        "mean_outcome": 0.3571
+        "count": 88,
+        "mean_pred": 0.4304,
+        "mean_outcome": 0.3523
       },
       {
         "bin": 4,
         "lo": 0.5,
         "hi": 0.625,
-        "count": 28,
-        "mean_pred": 0.5651,
-        "mean_outcome": 0.6429
+        "count": 29,
+        "mean_pred": 0.5569,
+        "mean_outcome": 0.6552
       },
       {
         "bin": 5,
         "lo": 0.625,
         "hi": 0.75,
-        "count": 6,
-        "mean_pred": 0.6588,
+        "count": 4,
+        "mean_pred": 0.6436,
         "mean_outcome": 0.5
       },
       {
@@ -80,19 +80,19 @@
         "mean_outcome": 0.0
       }
     ],
-    "underdog_inflation_pp": -2.68,
+    "underdog_inflation_pp": -5.75,
     "details": {}
   },
   "test": {
-    "n_samples": 56,
-    "brier_1x2": 0.595661,
-    "log_loss_1x2": 0.992505,
-    "ece_max_prob": 0.046448,
-    "hit_rate_1x2": 0.5179,
+    "n_samples": 80,
+    "brier_1x2": 0.578373,
+    "log_loss_1x2": 0.970397,
+    "ece_max_prob": 0.065481,
+    "hit_rate_1x2": 0.5375,
     "brier_by_outcome": {
-      "home_win": 0.245407,
-      "draw": 0.192535,
-      "away_win": 0.15772
+      "home_win": 0.224921,
+      "draw": 0.200542,
+      "away_win": 0.152909
     },
     "reliability_bins": [
       {
@@ -115,33 +115,33 @@
         "bin": 2,
         "lo": 0.25,
         "hi": 0.375,
-        "count": 4,
-        "mean_pred": 0.3588,
-        "mean_outcome": 0.25
+        "count": 5,
+        "mean_pred": 0.3609,
+        "mean_outcome": 0.4
       },
       {
         "bin": 3,
         "lo": 0.375,
         "hi": 0.5,
-        "count": 31,
-        "mean_pred": 0.4228,
-        "mean_outcome": 0.4516
+        "count": 41,
+        "mean_pred": 0.4303,
+        "mean_outcome": 0.4146
       },
       {
         "bin": 4,
         "lo": 0.5,
         "hi": 0.625,
-        "count": 18,
-        "mean_pred": 0.5481,
-        "mean_outcome": 0.6667
+        "count": 30,
+        "mean_pred": 0.5533,
+        "mean_outcome": 0.7333
       },
       {
         "bin": 5,
         "lo": 0.625,
         "hi": 0.75,
-        "count": 3,
-        "mean_pred": 0.663,
-        "mean_outcome": 0.6667
+        "count": 4,
+        "mean_pred": 0.6526,
+        "mean_outcome": 0.5
       },
       {
         "bin": 6,
@@ -160,39 +160,39 @@
         "mean_outcome": 0.0
       }
     ],
-    "underdog_inflation_pp": -0.6,
+    "underdog_inflation_pp": 0.63,
     "details": {}
   },
   "grid_top5": [
     {
       "poisson": 0.45,
       "elo": 0.55,
-      "brier_1x2": 0.642306,
-      "log_loss_1x2": 1.066236
+      "brier_1x2": 0.643458,
+      "log_loss_1x2": 1.066849
     },
     {
       "poisson": 0.4,
       "elo": 0.6,
-      "brier_1x2": 0.642349,
-      "log_loss_1x2": 1.065951
+      "brier_1x2": 0.643577,
+      "log_loss_1x2": 1.066833
     },
     {
       "poisson": 0.5,
       "elo": 0.5,
-      "brier_1x2": 0.64258,
-      "log_loss_1x2": 1.067019
+      "brier_1x2": 0.643605,
+      "log_loss_1x2": 1.067264
     },
     {
       "poisson": 0.35,
       "elo": 0.65,
-      "brier_1x2": 0.64271,
-      "log_loss_1x2": 1.066155
+      "brier_1x2": 0.643962,
+      "log_loss_1x2": 1.067212
     },
     {
       "poisson": 0.55,
       "elo": 0.45,
-      "brier_1x2": 0.643171,
-      "log_loss_1x2": 1.068315
+      "brier_1x2": 0.644019,
+      "log_loss_1x2": 1.068085
     }
   ],
   "engine": "calibration_metrics_v1"

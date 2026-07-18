@@ -27,10 +27,37 @@ def _extract_line(market_type_lower: str, default: float = 2.5) -> float:
     return float(m.group(1)) if m else default
 
 
-def resolve_actual_outcome(market_type: str, home_goals: int, away_goals: int) -> str:
+def resolve_stats_outcome(selection: str, actual_value: float) -> str:
+    """
+    Resolve a CORNERS/SOT/CARDS over-under pick given the actual stat value.
+    Selection format: 'Over 9.5', 'Under 8.5', 'Corners Over 9.5', etc.
+    Returns 'over', 'under', or 'unknown'.
+    """
+    sel_l = (selection or "").lower()
+    if "over" in sel_l:
+        direction = "over"
+    elif "under" in sel_l:
+        direction = "under"
+    else:
+        return "unknown"
+    line = _extract_line(sel_l)
+    if direction == "over":
+        return "over" if actual_value > line else "under"
+    return "under" if actual_value < line else "over"
+
+
+def resolve_actual_outcome(
+    market_type: str,
+    home_goals: int,
+    away_goals: int,
+    *,
+    actual_stat_value: float | None = None,
+    selection: str | None = None,
+) -> str:
     """
     Acepta tanto claves normalizadas ("1X2", "over_under_2.5") como las
     etiquetas reales que usa producción ("Over/Under 2.5", "Doble Oportunidad").
+    Also handles CORNERS, SOT, CARDS when actual_stat_value is provided.
     """
     mt = (market_type or "").strip().lower()
     if mt == "1x2":
@@ -42,6 +69,10 @@ def resolve_actual_outcome(market_type: str, home_goals: int, away_goals: int) -
     if "doble oportunidad" in mt or mt in ("dc", "double chance"):
         # DC no tiene una sola etiqueta ganadora — se resuelve en evaluate_prediction()
         return resolve_1x2_outcome(home_goals, away_goals)
+    if mt in ("corners", "sot", "cards") or mt.startswith("ou_"):
+        if actual_stat_value is not None and selection:
+            return resolve_stats_outcome(selection, actual_stat_value)
+        return "unknown"
     return "unknown"
 
 
@@ -136,12 +167,16 @@ def evaluate_prediction(
     *,
     team_home: str | None = None,
     team_away: str | None = None,
+    actual_stat_value: float | None = None,
 ) -> dict[str, Any]:
     """
     team_home/team_away son opcionales pero CRÍTICOS para evaluar 1X2
     correctamente cuando predicted_outcome es un nombre de equipo (el caso
     real en producción) en vez de una etiqueta "home_win"/"away_win"/"draw".
-    Sin ellos, el comportamiento cae a comparación directa (legacy).
+
+    actual_stat_value: for CORNERS/SOT/CARDS markets, the actual count
+    from the finished match (e.g., 11 corners total). Required to evaluate
+    stats markets; without it outcome is 'unknown'.
     """
     mt = _norm(market_type)
     predicted_key = resolve_predicted_key(
@@ -152,6 +187,14 @@ def evaluate_prediction(
         actual_1x2 = resolve_1x2_outcome(home_goals, away_goals)
         is_correct = actual_1x2 in _DC_WINNING_LABELS.get(predicted_key, ())
         actual = actual_1x2
+    elif mt in ("corners", "sot", "cards") or mt.startswith("ou_"):
+        actual = resolve_actual_outcome(
+            market_type, home_goals, away_goals,
+            actual_stat_value=actual_stat_value,
+            selection=predicted_outcome,
+        )
+        pred_dir = "over" if "over" in _norm(predicted_outcome) else "under"
+        is_correct = actual == pred_dir and actual != "unknown"
     else:
         actual = resolve_actual_outcome(market_type, home_goals, away_goals)
         is_correct = predicted_key == actual and actual != "unknown"

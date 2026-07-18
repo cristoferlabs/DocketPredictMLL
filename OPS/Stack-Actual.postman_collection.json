@@ -1,0 +1,1126 @@
+{
+  "info": {
+    "name": "Stack Actual — WC2026 Betting Engine",
+    "description": "Colección con TODAS las APIs que ya están activas en el stack.\n\nAPIs incluidas:\n  1. 🏠 API Local (FastAPI :8000) — predicciones, jobs, webhooks\n  2. ⚽ API-Football Free (key activa) — fixtures, standings, odds básicas\n  3. 📊 Football-Data.org (key activa) — fixtures y competencias WC\n  4. 💰 The Odds API (key activa) — cuotas de 40+ bookmakers\n  5. 🔵 Sportmonks (key activa) — livescores, odds, fixtures\n  6. 📰 GNews (key activa) — noticias WC en español/inglés\n  7. 📰 NewsAPI (key activa) — noticias deportivas\n  8. 🗄️ Supabase REST (key activa) — tablas de datos directas\n\nNota: API-Football FREE = 100 req/día. Odds en vivo requieren plan Pro.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "stack-actual-wc2026"
+  },
+  "variable": [
+    { "key": "LOCAL_API",           "value": "http://localhost:8000",                          "type": "string" },
+    { "key": "AF_KEY",              "value": "6ff9af31322694c6131ad6f159870363",               "type": "string", "description": "API-Football free key (100 req/día)" },
+    { "key": "AF_BASE",             "value": "https://v3.football.api-sports.io",              "type": "string" },
+    { "key": "FD_KEY",              "value": "f61831e7629843429d9cc03aa3b4d7af",               "type": "string", "description": "Football-Data.org key" },
+    { "key": "FD_BASE",             "value": "https://api.football-data.org/v4",               "type": "string" },
+    { "key": "ODDS_KEY",            "value": "7b376c47a3401aa071c5a7d3f279e2b8",               "type": "string", "description": "The Odds API key" },
+    { "key": "ODDS_BASE",           "value": "https://api.the-odds-api.com/v4",                "type": "string" },
+    { "key": "SM_KEY",              "value": "DKVWm5gBbEzMcNdXLPZD8DA36OLqbOYIvBuEKAq2ib3epJo2Sed05qwe6cue", "type": "string", "description": "Sportmonks key" },
+    { "key": "SM_BASE",             "value": "https://api.sportmonks.com/v3/football",         "type": "string" },
+    { "key": "GNEWS_KEY",           "value": "f60826dbcd02c7d7a7d1b7e4859e2321",               "type": "string" },
+    { "key": "GNEWS_BASE",          "value": "https://gnews.io/api/v4",                        "type": "string" },
+    { "key": "NEWSAPI_KEY",         "value": "B6exZxiA2VuPXiun4O43TJIY2GbD02W3psjLxIAC",      "type": "string" },
+    { "key": "NEWSAPI_BASE",        "value": "https://newsapi.org/v2",                         "type": "string" },
+    { "key": "SB_URL",              "value": "https://jpdvuafhfvdadxagqnoj.supabase.co",       "type": "string" },
+    { "key": "SB_KEY",              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZHZ1YWZoZnZkYWR4YWdxbm9qIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjI2MDk1NiwiZXhwIjoyMDk3ODM2OTU2fQ.r0exP_ogS848yPeeYo-Yav04mC5ca1JHv3Pt9ylaI9g", "type": "string", "description": "Supabase service role key" },
+    { "key": "WC_FIXTURE_ID",       "value": "",                                               "type": "string", "description": "ID fixture API-Football. Obtenerlo primero con: GET /fixtures?league=1&season=2026 o GET /fixtures?next=5" },
+    { "key": "MATCH_UUID",          "value": "",                                               "type": "string", "description": "UUID real de Supabase. Obtenerlo con: GET /predictions/upcoming o Supabase→matches" },
+    { "key": "WC_SPORT_KEY",        "value": "soccer_fifa_world_cup",                          "type": "string", "description": "Sport key para WC2026 en The Odds API. Verificar con GET /sports — puede ser soccer_fifa_world_cup o soccer_fifa_world_cup_2026" },
+    { "key": "TG_TOKEN",            "value": "8903743847:AAGEh98_14c8jEgSvCrRa_0rvbhKT2vpAJw",  "type": "string", "description": "Telegram Bot Token" },
+    { "key": "TG_GROUP",            "value": "-1004300673791",                                    "type": "string", "description": "Chat ID del grupo WC2026" },
+    { "key": "TG_BASE",             "value": "https://api.telegram.org",                          "type": "string" }
+  ],
+  "item": [
+
+    {
+      "name": "🏠 API Local — FastAPI :8000",
+      "description": "Tu propia API corriendo en http://localhost:8000. Requiere `scripts\\start-api.bat` activo.",
+      "item": [
+
+        {
+          "name": "Health",
+          "item": [
+            {
+              "name": "GET / — Root",
+              "request": {
+                "method": "GET",
+                "url": { "raw": "{{LOCAL_API}}/", "host": ["{{LOCAL_API}}"], "path": [""] },
+                "description": "Verifica que la API está viva."
+              }
+            },
+            {
+              "name": "GET /health",
+              "request": {
+                "method": "GET",
+                "url": { "raw": "{{LOCAL_API}}/health", "host": ["{{LOCAL_API}}"], "path": ["health"] }
+              }
+            },
+            {
+              "name": "GET /health/db — Supabase conectado?",
+              "request": {
+                "method": "GET",
+                "url": { "raw": "{{LOCAL_API}}/health/db", "host": ["{{LOCAL_API}}"], "path": ["health", "db"] },
+                "description": "Verifica conexión a Supabase."
+              }
+            },
+            {
+              "name": "GET /health/schemas — ml + ops expuestos?",
+              "request": {
+                "method": "GET",
+                "url": { "raw": "{{LOCAL_API}}/health/schemas", "host": ["{{LOCAL_API}}"], "path": ["health", "schemas"] },
+                "description": "Verifica que los schemas ml y ops están expuestos en Supabase."
+              }
+            },
+            {
+              "name": "GET /docs — Swagger UI",
+              "request": {
+                "method": "GET",
+                "url": { "raw": "{{LOCAL_API}}/docs", "host": ["{{LOCAL_API}}"], "path": ["docs"] },
+                "description": "Abre en browser para ver todos los endpoints interactivos."
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Predictions",
+          "item": [
+            {
+              "name": "GET /predictions/upcoming — Próximos partidos con predicción",
+              "request": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{LOCAL_API}}/predictions/upcoming?limit=20",
+                  "host": ["{{LOCAL_API}}"],
+                  "path": ["predictions", "upcoming"],
+                  "query": [{ "key": "limit", "value": "20" }]
+                },
+                "description": "Lista partidos scheduled con sus predicciones de probabilidad."
+              }
+            },
+            {
+              "name": "GET /predictions/match/{id} — Predicción + combinaciones",
+              "request": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{LOCAL_API}}/predictions/match/{{MATCH_UUID}}",
+                  "host": ["{{LOCAL_API}}"],
+                  "path": ["predictions", "match", "{{MATCH_UUID}}"]
+                },
+                "description": "Reemplazar MATCH_UUID con un UUID real de la tabla matches en Supabase."
+              }
+            },
+            {
+              "name": "GET /predictions/search?q=France",
+              "request": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{LOCAL_API}}/predictions/search?q=France",
+                  "host": ["{{LOCAL_API}}"],
+                  "path": ["predictions", "search"],
+                  "query": [{ "key": "q", "value": "France" }]
+                }
+              }
+            },
+            {
+              "name": "GET /predictions/search?q=Mexico",
+              "request": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{LOCAL_API}}/predictions/search?q=Mexico",
+                  "host": ["{{LOCAL_API}}"],
+                  "path": ["predictions", "search"],
+                  "query": [{ "key": "q", "value": "Mexico" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Jobs — Motor de tareas (requiere Redis + Worker activos)",
+          "description": "⚠️ Todos los jobs devuelven 503 si Redis no está corriendo.\n\nAntes de usar: asegurate de que `scripts/start-worker.bat` esté activo además de la API.\nSi devuelve 503: iniciar Redis con `redis-server` y el worker con `start-worker.bat`.",
+          "item": [
+            {
+              "name": "POST /jobs/ingest-fixtures — WC via Football-Data.org",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"competition_code\": \"WC\",\n  \"days_ahead\": 7,\n  \"sources\": [\"football-data\", \"odds-api\"]\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": { "raw": "{{LOCAL_API}}/jobs/ingest-fixtures", "host": ["{{LOCAL_API}}"], "path": ["jobs", "ingest-fixtures"] },
+                "description": "Ingesta WC2026 desde Football-Data.org + The Odds API. Sources válidas: football-data, api-football, odds-api, sportmonks. Omitir sources = todas."
+              }
+            },
+            {
+              "name": "POST /jobs/ingest-fixtures — WC via API-Football (free, 100 req/día)",
+              "request": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"league_external_id\": 1,\n  \"season\": 2026,\n  \"days_ahead\": 7,\n  \"sources\": [\"api-football\"]\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": { "raw": "{{LOCAL_API}}/jobs/ingest-fixtures", "host": ["{{LOCAL_API}}"], "path": ["jobs", "ingest-fixtures"] },
+                "description": "league_external_id=1 = World Cup en API-Football. Usa la free key (100 req/día)."
+              }
+            },
+            {
+              "name": "POST /jobs/evaluate-pending — Evalúa predicciones terminadas",
+              "request": {
+                "method": "POST",
+                "url": { "raw": "{{LOCAL_API}}/jobs/evaluate-pending", "host": ["{{LOCAL_API}}"], "path": ["jobs", "evaluate-pending"] }
+              }
+            },
+            {
+              "name": "POST /jobs/predict-upcoming — Genera predicciones",
+              "request": {
+                "method": "POST",
+                "url": { "raw": "{{LOCAL_API}}/jobs/predict-upcoming", "host": ["{{LOCAL_API}}"], "path": ["jobs", "predict-upcoming"] }
+              }
+            },
+            {
+              "name": "POST /jobs/update-elo — Recalcula ELO ratings",
+              "request": {
+                "method": "POST",
+                "url": { "raw": "{{LOCAL_API}}/jobs/update-elo", "host": ["{{LOCAL_API}}"], "path": ["jobs", "update-elo"] }
+              }
+            },
+            {
+              "name": "POST /jobs/calibrate-models — Calibración isotónica",
+              "request": {
+                "method": "POST",
+                "url": { "raw": "{{LOCAL_API}}/jobs/calibrate-models", "host": ["{{LOCAL_API}}"], "path": ["jobs", "calibrate-models"] }
+              }
+            },
+            {
+              "name": "POST /jobs/run-backtest — Backtest WC 2018→2022",
+              "request": {
+                "method": "POST",
+                "url": { "raw": "{{LOCAL_API}}/jobs/run-backtest", "host": ["{{LOCAL_API}}"], "path": ["jobs", "run-backtest"] }
+              }
+            },
+            {
+              "name": "POST /jobs/train — Reentrenar modelos",
+              "request": {
+                "method": "POST",
+                "url": { "raw": "{{LOCAL_API}}/jobs/train", "host": ["{{LOCAL_API}}"], "path": ["jobs", "train"] }
+              }
+            },
+            {
+              "name": "POST /jobs/audit-wc-data — Auditoría datos WC",
+              "request": {
+                "method": "POST",
+                "url": { "raw": "{{LOCAL_API}}/jobs/audit-wc-data", "host": ["{{LOCAL_API}}"], "path": ["jobs", "audit-wc-data"] }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Telegram Info",
+          "item": [
+            {
+              "name": "GET /webhooks/telegram/setup — Info del bot (siempre funciona)",
+              "request": {
+                "method": "GET",
+                "url": { "raw": "{{LOCAL_API}}/webhooks/telegram/setup", "host": ["{{LOCAL_API}}"], "path": ["webhooks", "telegram", "setup"] },
+                "description": "Devuelve si el bot está configurado, el group_id, y el modo de ingesta activo. No requiere n8n."
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "🤖 Telegram Bot API (directo — funciona en modo poll)",
+      "description": "Llamadas directas a api.telegram.org/bot<token>. Funcionan SIEMPRE, independientemente del modo de ingesta.\n\n✅ Estas requests sirven para:\n  • Verificar que el token es válido (getMe)\n  • Enviar mensajes de prueba al grupo o a un chat privado\n  • Consultar info del grupo\n  • Ver si el webhook está registrado (y limpiarlo si es necesario)\n\n⛔ NO incluye getUpdates — en modo poll el poller ya consume esa cola y dos consumidores se pisarían.",
+      "item": [
+        {
+          "name": "GET getMe — Verificar token del bot",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{TG_BASE}}/bot{{TG_TOKEN}}/getMe",
+              "host": ["{{TG_BASE}}"],
+              "path": ["bot{{TG_TOKEN}}", "getMe"]
+            },
+            "description": "⚡ Empezar aquí. Respuesta ok=true confirma que el token es válido y el bot existe."
+          }
+        },
+        {
+          "name": "GET getChat — Info del grupo WC2026",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{TG_BASE}}/bot{{TG_TOKEN}}/getChat?chat_id={{TG_GROUP}}",
+              "host": ["{{TG_BASE}}"],
+              "path": ["bot{{TG_TOKEN}}", "getChat"],
+              "query": [{ "key": "chat_id", "value": "{{TG_GROUP}}" }]
+            },
+            "description": "Confirma que el bot tiene acceso al grupo. Devuelve nombre, tipo, descripción."
+          }
+        },
+        {
+          "name": "POST sendMessage — Mensaje de prueba al grupo",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chat_id\": \"{{TG_GROUP}}\",\n  \"text\": \"🧪 Test Postman — Bot activo y respondiendo\",\n  \"parse_mode\": \"HTML\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{TG_BASE}}/bot{{TG_TOKEN}}/sendMessage",
+              "host": ["{{TG_BASE}}"],
+              "path": ["bot{{TG_TOKEN}}", "sendMessage"]
+            },
+            "description": "Envía un mensaje al grupo. Útil para verificar que el bot puede escribir."
+          }
+        },
+        {
+          "name": "POST sendMessage — Mensaje de prueba privado (reemplazar chat_id)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chat_id\": \"TU_CHAT_ID_PERSONAL\",\n  \"text\": \"🧪 Test desde Postman — respuesta del motor WC2026\",\n  \"parse_mode\": \"HTML\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{TG_BASE}}/bot{{TG_TOKEN}}/sendMessage",
+              "host": ["{{TG_BASE}}"],
+              "path": ["bot{{TG_TOKEN}}", "sendMessage"]
+            },
+            "description": "Reemplazar TU_CHAT_ID_PERSONAL con tu Telegram user ID (obtenelo con @userinfobot)."
+          }
+        },
+        {
+          "name": "GET getWebhookInfo — ¿Hay webhook registrado?",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{TG_BASE}}/bot{{TG_TOKEN}}/getWebhookInfo",
+              "host": ["{{TG_BASE}}"],
+              "path": ["bot{{TG_TOKEN}}", "getWebhookInfo"]
+            },
+            "description": "En modo poll, url debería estar vacío. Si hay una URL registrada y usás poll, los updates se irán al webhook y el poller no los recibirá."
+          }
+        },
+        {
+          "name": "POST deleteWebhook — Limpiar webhook (si está registrado)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"drop_pending_updates\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{TG_BASE}}/bot{{TG_TOKEN}}/deleteWebhook",
+              "host": ["{{TG_BASE}}"],
+              "path": ["bot{{TG_TOKEN}}", "deleteWebhook"]
+            },
+            "description": "⚠️ Solo ejecutar si getWebhookInfo devuelve una URL activa. Poner drop_pending_updates=true para descartar mensajes viejos acumulados."
+          }
+        },
+        {
+          "name": "GET getChatMember — ¿El bot es admin del grupo?",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{TG_BASE}}/bot{{TG_TOKEN}}/getChatMember?chat_id={{TG_GROUP}}&user_id=8903743847",
+              "host": ["{{TG_BASE}}"],
+              "path": ["bot{{TG_TOKEN}}", "getChatMember"],
+              "query": [
+                { "key": "chat_id", "value": "{{TG_GROUP}}" },
+                { "key": "user_id", "value": "8903743847", "description": "ID numérico del bot (primer segmento del token)" }
+              ]
+            },
+            "description": "Verifica si el bot tiene permisos de administrador en el grupo. Necesario para enviar mensajes en grupos con restricciones."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "⚽ API-Football FREE (key activa)",
+      "description": "key: 6ff9af31322694c6131ad6f159870363 — Plan FREE: 100 req/día. Sin odds en vivo.",
+      "item": [
+        {
+          "name": "GET /status — Cuota restante del día",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": { "raw": "{{AF_BASE}}/status", "host": ["{{AF_BASE}}"], "path": ["status"] },
+            "description": "⚡ Ejecutar primero siempre — muestra requests restantes del día (100 total en free)."
+          }
+        },
+        {
+          "name": "GET /leagues — World Cup 2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/leagues?id=1&season=2026",
+              "host": ["{{AF_BASE}}"],
+              "path": ["leagues"],
+              "query": [{ "key": "id", "value": "1" }, { "key": "season", "value": "2026" }]
+            }
+          }
+        },
+        {
+          "name": "GET /fixtures — WC2026 hoy",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/fixtures?league=1&season=2026&date=2026-06-30",
+              "host": ["{{AF_BASE}}"],
+              "path": ["fixtures"],
+              "query": [{ "key": "league", "value": "1" }, { "key": "season", "value": "2026" }, { "key": "date", "value": "2026-06-30" }]
+            }
+          }
+        },
+        {
+          "name": "GET /fixtures — Próximos 5",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/fixtures?league=1&next=5",
+              "host": ["{{AF_BASE}}"],
+              "path": ["fixtures"],
+              "query": [{ "key": "league", "value": "1" }, { "key": "next", "value": "5" }]
+            }
+          }
+        },
+        {
+          "name": "GET /fixtures — Fixture específico",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/fixtures?id={{WC_FIXTURE_ID}}",
+              "host": ["{{AF_BASE}}"],
+              "path": ["fixtures"],
+              "query": [{ "key": "id", "value": "{{WC_FIXTURE_ID}}" }]
+            }
+          }
+        },
+        {
+          "name": "GET /standings — Grupos WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/standings?league=1&season=2026",
+              "host": ["{{AF_BASE}}"],
+              "path": ["standings"],
+              "query": [{ "key": "league", "value": "1" }, { "key": "season", "value": "2026" }]
+            }
+          }
+        },
+        {
+          "name": "GET /teams — Selecciones WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/teams?league=1&season=2026",
+              "host": ["{{AF_BASE}}"],
+              "path": ["teams"],
+              "query": [{ "key": "league", "value": "1" }, { "key": "season", "value": "2026" }]
+            }
+          }
+        },
+        {
+          "name": "GET /odds — Pre-match (limitado en free)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/odds?fixture={{WC_FIXTURE_ID}}&bookmaker=6",
+              "host": ["{{AF_BASE}}"],
+              "path": ["odds"],
+              "query": [{ "key": "fixture", "value": "{{WC_FIXTURE_ID}}" }, { "key": "bookmaker", "value": "6" }]
+            },
+            "description": "bookmaker=6 = Bet365. En free plan puede devolver datos limitados."
+          }
+        },
+        {
+          "name": "GET /predictions — Predicción del fixture",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/predictions?fixture={{WC_FIXTURE_ID}}",
+              "host": ["{{AF_BASE}}"],
+              "path": ["predictions"],
+              "query": [{ "key": "fixture", "value": "{{WC_FIXTURE_ID}}" }]
+            }
+          }
+        },
+        {
+          "name": "GET /players/topscorers — WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{AF_KEY}}" }],
+            "url": {
+              "raw": "{{AF_BASE}}/players/topscorers?league=1&season=2026",
+              "host": ["{{AF_BASE}}"],
+              "path": ["players", "topscorers"],
+              "query": [{ "key": "league", "value": "1" }, { "key": "season", "value": "2026" }]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📊 Football-Data.org (key activa)",
+      "description": "key: f61831e7629843429d9cc03aa3b4d7af — Header: X-Auth-Token. Free tier con WC disponible.",
+      "item": [
+        {
+          "name": "GET /competitions/WC — Info del Mundial",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": { "raw": "{{FD_BASE}}/competitions/WC", "host": ["{{FD_BASE}}"], "path": ["competitions", "WC"] },
+            "description": "Metadata del Mundial: nombre, temporada actual, emblema."
+          }
+        },
+        {
+          "name": "GET /competitions/WC/matches — Todos los partidos",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": { "raw": "{{FD_BASE}}/competitions/WC/matches", "host": ["{{FD_BASE}}"], "path": ["competitions", "WC", "matches"] }
+          }
+        },
+        {
+          "name": "GET /competitions/WC/matches — Hoy",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": {
+              "raw": "{{FD_BASE}}/competitions/WC/matches?dateFrom=2026-06-30&dateTo=2026-06-30",
+              "host": ["{{FD_BASE}}"],
+              "path": ["competitions", "WC", "matches"],
+              "query": [{ "key": "dateFrom", "value": "2026-06-30" }, { "key": "dateTo", "value": "2026-06-30" }]
+            }
+          }
+        },
+        {
+          "name": "GET /competitions/WC/matches — Status: SCHEDULED",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": {
+              "raw": "{{FD_BASE}}/competitions/WC/matches?status=SCHEDULED",
+              "host": ["{{FD_BASE}}"],
+              "path": ["competitions", "WC", "matches"],
+              "query": [{ "key": "status", "value": "SCHEDULED" }],
+              "description": "status: SCHEDULED | LIVE | IN_PLAY | PAUSED | FINISHED | POSTPONED | CANCELLED"
+            }
+          }
+        },
+        {
+          "name": "GET /competitions/WC/matches — En vivo",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": {
+              "raw": "{{FD_BASE}}/competitions/WC/matches?status=LIVE",
+              "host": ["{{FD_BASE}}"],
+              "path": ["competitions", "WC", "matches"],
+              "query": [{ "key": "status", "value": "LIVE" }]
+            }
+          }
+        },
+        {
+          "name": "GET /competitions/WC/standings — Grupos",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": { "raw": "{{FD_BASE}}/competitions/WC/standings", "host": ["{{FD_BASE}}"], "path": ["competitions", "WC", "standings"] }
+          }
+        },
+        {
+          "name": "GET /competitions/WC/teams — 48 selecciones",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": { "raw": "{{FD_BASE}}/competitions/WC/teams", "host": ["{{FD_BASE}}"], "path": ["competitions", "WC", "teams"] }
+          }
+        },
+        {
+          "name": "GET /competitions/WC/scorers — Goleadores",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": { "raw": "{{FD_BASE}}/competitions/WC/scorers?limit=20", "host": ["{{FD_BASE}}"], "path": ["competitions", "WC", "scorers"], "query": [{ "key": "limit", "value": "20" }] }
+          }
+        },
+        {
+          "name": "GET /matches/{id} — Detalle partido",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": {
+              "raw": "{{FD_BASE}}/matches/{{WC_FIXTURE_ID}}",
+              "host": ["{{FD_BASE}}"],
+              "path": ["matches", "{{WC_FIXTURE_ID}}"]
+            },
+            "description": "Los IDs de Football-Data son distintos a API-Football — buscar primero en /matches."
+          }
+        },
+        {
+          "name": "GET /teams/{id} — Detalle selección",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Auth-Token", "value": "{{FD_KEY}}" }],
+            "url": {
+              "raw": "{{FD_BASE}}/teams/773",
+              "host": ["{{FD_BASE}}"],
+              "path": ["teams", "773"],
+              "description": "773 = France en Football-Data"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "💰 The Odds API (key activa)",
+      "description": "key: 7b376c47a3401aa071c5a7d3f279e2b8 — La fuente principal de cuotas del motor. 40+ bookmakers.",
+      "item": [
+        {
+          "name": "GET /sports — Lista de deportes disponibles",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ODDS_BASE}}/sports?apiKey={{ODDS_KEY}}",
+              "host": ["{{ODDS_BASE}}"],
+              "path": ["sports"],
+              "query": [{ "key": "apiKey", "value": "{{ODDS_KEY}}" }]
+            },
+            "description": "⚡ Ejecutar primero para encontrar el sport_key correcto del Mundial."
+          }
+        },
+        {
+          "name": "GET /sports (solo activos)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ODDS_BASE}}/sports?apiKey={{ODDS_KEY}}&all=false",
+              "host": ["{{ODDS_BASE}}"],
+              "path": ["sports"],
+              "query": [{ "key": "apiKey", "value": "{{ODDS_KEY}}" }, { "key": "all", "value": "false" }]
+            }
+          }
+        },
+        {
+          "name": "GET /odds — WC2026 (1X2)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ODDS_BASE}}/sports/{{WC_SPORT_KEY}}/odds?apiKey={{ODDS_KEY}}&regions=eu&markets=h2h&oddsFormat=decimal",
+              "host": ["{{ODDS_BASE}}"],
+              "path": ["sports", "{{WC_SPORT_KEY}}", "odds"],
+              "query": [
+                { "key": "apiKey",      "value": "{{ODDS_KEY}}" },
+                { "key": "regions",     "value": "eu",       "description": "eu | us | uk | au" },
+                { "key": "markets",     "value": "h2h",      "description": "h2h=1X2 | spreads | totals" },
+                { "key": "oddsFormat",  "value": "decimal" }
+              ]
+            },
+            "description": "Ajustar sport_key según el resultado de /sports. Puede ser 'soccer_fifa_world_cup_2026'."
+          }
+        },
+        {
+          "name": "GET /odds — Over/Under",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ODDS_BASE}}/sports/{{WC_SPORT_KEY}}/odds?apiKey={{ODDS_KEY}}&regions=eu&markets=totals&oddsFormat=decimal",
+              "host": ["{{ODDS_BASE}}"],
+              "path": ["sports", "{{WC_SPORT_KEY}}", "odds"],
+              "query": [
+                { "key": "apiKey",     "value": "{{ODDS_KEY}}" },
+                { "key": "regions",    "value": "eu" },
+                { "key": "markets",    "value": "totals" },
+                { "key": "oddsFormat", "value": "decimal" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /odds — Bookmakers específicos",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ODDS_BASE}}/sports/{{WC_SPORT_KEY}}/odds?apiKey={{ODDS_KEY}}&regions=eu&markets=h2h&bookmakers=bet365,unibet,pinnacle&oddsFormat=decimal",
+              "host": ["{{ODDS_BASE}}"],
+              "path": ["sports", "{{WC_SPORT_KEY}}", "odds"],
+              "query": [
+                { "key": "apiKey",      "value": "{{ODDS_KEY}}" },
+                { "key": "regions",     "value": "eu" },
+                { "key": "markets",     "value": "h2h" },
+                { "key": "bookmakers",  "value": "bet365,unibet,pinnacle" },
+                { "key": "oddsFormat",  "value": "decimal" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /scores — Resultados recientes WC",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ODDS_BASE}}/sports/{{WC_SPORT_KEY}}/scores?apiKey={{ODDS_KEY}}&daysFrom=3",
+              "host": ["{{ODDS_BASE}}"],
+              "path": ["sports", "{{WC_SPORT_KEY}}", "scores"],
+              "query": [
+                { "key": "apiKey",   "value": "{{ODDS_KEY}}" },
+                { "key": "daysFrom", "value": "3", "description": "Resultados de los últimos N días" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /events — Lista de partidos WC",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ODDS_BASE}}/sports/{{WC_SPORT_KEY}}/events?apiKey={{ODDS_KEY}}",
+              "host": ["{{ODDS_BASE}}"],
+              "path": ["sports", "{{WC_SPORT_KEY}}", "events"],
+              "query": [{ "key": "apiKey", "value": "{{ODDS_KEY}}" }]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🔵 Sportmonks (key activa)",
+      "description": "key: DKVWm5g... — Bueno para livescores y odds en vivo. Header: Authorization.",
+      "item": [
+        {
+          "name": "GET /livescores/now — Partidos en curso",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "{{SM_KEY}}" }],
+            "url": {
+              "raw": "{{SM_BASE}}/livescores/now",
+              "host": ["{{SM_BASE}}"],
+              "path": ["livescores", "now"]
+            },
+            "description": "Todos los partidos en vivo ahora mismo con score en tiempo real."
+          }
+        },
+        {
+          "name": "GET /livescores/inplay — Con odds en vivo",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "{{SM_KEY}}" }],
+            "url": {
+              "raw": "{{SM_BASE}}/livescores/inplay?include=odds",
+              "host": ["{{SM_BASE}}"],
+              "path": ["livescores", "inplay"],
+              "query": [{ "key": "include", "value": "odds" }]
+            }
+          }
+        },
+        {
+          "name": "GET /fixtures — WC2026 próximos",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "{{SM_KEY}}" }],
+            "url": {
+              "raw": "{{SM_BASE}}/fixtures?filters=fixtureLeagues:1;fixtureBetween:2026-06-30,2026-07-19&include=participants;odds",
+              "host": ["{{SM_BASE}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "filters",  "value": "fixtureLeagues:1;fixtureBetween:2026-06-30,2026-07-19" },
+                { "key": "include",  "value": "participants;odds" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /fixtures/{id} — Detalle con stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "{{SM_KEY}}" }],
+            "url": {
+              "raw": "{{SM_BASE}}/fixtures/{{WC_FIXTURE_ID}}?include=participants;statistics;events;odds",
+              "host": ["{{SM_BASE}}"],
+              "path": ["fixtures", "{{WC_FIXTURE_ID}}"],
+              "query": [{ "key": "include", "value": "participants;statistics;events;odds" }]
+            }
+          }
+        },
+        {
+          "name": "GET /leagues — Buscar WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "{{SM_KEY}}" }],
+            "url": {
+              "raw": "{{SM_BASE}}/leagues?filters=leagueName:FIFA World Cup",
+              "host": ["{{SM_BASE}}"],
+              "path": ["leagues"],
+              "query": [{ "key": "filters", "value": "leagueName:FIFA World Cup" }]
+            }
+          }
+        },
+        {
+          "name": "GET /odds/fixtures — Pre-match WC",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "{{SM_KEY}}" }],
+            "url": {
+              "raw": "{{SM_BASE}}/odds/fixtures/{{WC_FIXTURE_ID}}",
+              "host": ["{{SM_BASE}}"],
+              "path": ["odds", "fixtures", "{{WC_FIXTURE_ID}}"]
+            }
+          }
+        },
+        {
+          "name": "GET /standings/seasons/{id} — Tabla grupos",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "{{SM_KEY}}" }],
+            "url": {
+              "raw": "{{SM_BASE}}/standings/seasons/22076",
+              "host": ["{{SM_BASE}}"],
+              "path": ["standings", "seasons", "22076"],
+              "description": "22076 = WC2026 season ID en Sportmonks (verificar con /seasons)"
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📰 GNews (key activa)",
+      "description": "key: f60826dbcd02c7d7a7d1b7e4859e2321 — Noticias sobre lesiones, alineaciones, novedades WC.",
+      "item": [
+        {
+          "name": "GET /search — Noticias WC2026 (español)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{GNEWS_BASE}}/search?q=Mundial+2026&lang=es&max=10&apikey={{GNEWS_KEY}}",
+              "host": ["{{GNEWS_BASE}}"],
+              "path": ["search"],
+              "query": [
+                { "key": "q",      "value": "Mundial 2026" },
+                { "key": "lang",   "value": "es" },
+                { "key": "max",    "value": "10" },
+                { "key": "apikey", "value": "{{GNEWS_KEY}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /search — Lesiones WC",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{GNEWS_BASE}}/search?q=lesiones+selecciones+mundial+2026&lang=es&max=5&apikey={{GNEWS_KEY}}",
+              "host": ["{{GNEWS_BASE}}"],
+              "path": ["search"],
+              "query": [
+                { "key": "q",      "value": "lesiones selecciones mundial 2026" },
+                { "key": "lang",   "value": "es" },
+                { "key": "max",    "value": "5" },
+                { "key": "apikey", "value": "{{GNEWS_KEY}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /search — FIFA World Cup (english)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{GNEWS_BASE}}/search?q=FIFA+World+Cup+2026&lang=en&max=10&apikey={{GNEWS_KEY}}",
+              "host": ["{{GNEWS_BASE}}"],
+              "path": ["search"],
+              "query": [
+                { "key": "q",      "value": "FIFA World Cup 2026" },
+                { "key": "lang",   "value": "en" },
+                { "key": "max",    "value": "10" },
+                { "key": "apikey", "value": "{{GNEWS_KEY}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /top-headlines — Deportes",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{GNEWS_BASE}}/top-headlines?topic=sports&lang=es&max=10&apikey={{GNEWS_KEY}}",
+              "host": ["{{GNEWS_BASE}}"],
+              "path": ["top-headlines"],
+              "query": [
+                { "key": "topic",  "value": "sports" },
+                { "key": "lang",   "value": "es" },
+                { "key": "max",    "value": "10" },
+                { "key": "apikey", "value": "{{GNEWS_KEY}}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📰 NewsAPI (key activa)",
+      "description": "key: B6exZxiA2VuPXiun4O43TJIY2GbD02W3psjLxIAC — Noticias globales de fuentes premium.",
+      "item": [
+        {
+          "name": "GET /everything — World Cup 2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Api-Key", "value": "{{NEWSAPI_KEY}}" }],
+            "url": {
+              "raw": "{{NEWSAPI_BASE}}/everything?q=World+Cup+2026&language=en&sortBy=publishedAt&pageSize=10",
+              "host": ["{{NEWSAPI_BASE}}"],
+              "path": ["everything"],
+              "query": [
+                { "key": "q",          "value": "World Cup 2026" },
+                { "key": "language",   "value": "en" },
+                { "key": "sortBy",     "value": "publishedAt" },
+                { "key": "pageSize",   "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /everything — Lesiones + alineaciones",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Api-Key", "value": "{{NEWSAPI_KEY}}" }],
+            "url": {
+              "raw": "{{NEWSAPI_BASE}}/everything?q=injury+lineup+World+Cup+2026&language=en&sortBy=publishedAt&pageSize=5",
+              "host": ["{{NEWSAPI_BASE}}"],
+              "path": ["everything"],
+              "query": [
+                { "key": "q",        "value": "injury lineup World Cup 2026" },
+                { "key": "language", "value": "en" },
+                { "key": "sortBy",   "value": "publishedAt" },
+                { "key": "pageSize", "value": "5" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /top-headlines — Sports",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Api-Key", "value": "{{NEWSAPI_KEY}}" }],
+            "url": {
+              "raw": "{{NEWSAPI_BASE}}/top-headlines?category=sports&language=en&pageSize=10",
+              "host": ["{{NEWSAPI_BASE}}"],
+              "path": ["top-headlines"],
+              "query": [
+                { "key": "category", "value": "sports" },
+                { "key": "language", "value": "en" },
+                { "key": "pageSize", "value": "10" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🗄️ Supabase REST (directo)",
+      "description": "Acceso directo a las tablas sin pasar por la API local. Header: apikey + Authorization.",
+      "item": [
+        {
+          "name": "Tablas Públicas",
+          "item": [
+            {
+              "name": "GET matches — Próximos scheduled",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "apikey",        "value": "{{SB_KEY}}" },
+                  { "key": "Authorization", "value": "Bearer {{SB_KEY}}" }
+                ],
+                "url": {
+                  "raw": "{{SB_URL}}/rest/v1/matches?status=eq.scheduled&order=kickoff_at.asc&limit=20&select=id,kickoff_at,status,home_team_id,away_team_id",
+                  "host": ["{{SB_URL}}"],
+                  "path": ["rest", "v1", "matches"],
+                  "query": [
+                    { "key": "status",  "value": "eq.scheduled" },
+                    { "key": "order",   "value": "kickoff_at.asc" },
+                    { "key": "limit",   "value": "20" },
+                    { "key": "select",  "value": "id,kickoff_at,status,home_team_id,away_team_id" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET teams — Todas las selecciones",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "apikey",        "value": "{{SB_KEY}}" },
+                  { "key": "Authorization", "value": "Bearer {{SB_KEY}}" }
+                ],
+                "url": {
+                  "raw": "{{SB_URL}}/rest/v1/teams?select=id,name,short_name&order=name.asc",
+                  "host": ["{{SB_URL}}"],
+                  "path": ["rest", "v1", "teams"],
+                  "query": [
+                    { "key": "select", "value": "id,name,short_name" },
+                    { "key": "order",  "value": "name.asc" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET leagues — Ligas activas",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "apikey",        "value": "{{SB_KEY}}" },
+                  { "key": "Authorization", "value": "Bearer {{SB_KEY}}" }
+                ],
+                "url": {
+                  "raw": "{{SB_URL}}/rest/v1/leagues?select=id,name,external_id&order=name.asc",
+                  "host": ["{{SB_URL}}"],
+                  "path": ["rest", "v1", "leagues"],
+                  "query": [
+                    { "key": "select", "value": "id,name,external_id" },
+                    { "key": "order",  "value": "name.asc" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET telegram_sessions — Sesiones activas",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "apikey",        "value": "{{SB_KEY}}" },
+                  { "key": "Authorization", "value": "Bearer {{SB_KEY}}" }
+                ],
+                "url": {
+                  "raw": "{{SB_URL}}/rest/v1/telegram_sessions?select=id,last_intent,context&order=created_at.desc&limit=10",
+                  "host": ["{{SB_URL}}"],
+                  "path": ["rest", "v1", "telegram_sessions"],
+                  "query": [
+                    { "key": "select", "value": "id,last_intent,context" },
+                    { "key": "order",  "value": "created_at.desc" },
+                    { "key": "limit",  "value": "10" }
+                  ]
+                },
+                "description": "Ver las últimas sesiones del bot de Telegram — útil para debug."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Schema ML",
+          "item": [
+            {
+              "name": "GET ml.predictions — Últimas predicciones",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "apikey",        "value": "{{SB_KEY}}" },
+                  { "key": "Authorization", "value": "Bearer {{SB_KEY}}" },
+                  { "key": "Accept-Profile", "value": "ml" }
+                ],
+                "url": {
+                  "raw": "{{SB_URL}}/rest/v1/predictions?order=created_at.desc&limit=20",
+                  "host": ["{{SB_URL}}"],
+                  "path": ["rest", "v1", "predictions"],
+                  "query": [
+                    { "key": "order", "value": "created_at.desc" },
+                    { "key": "limit", "value": "20" }
+                  ]
+                },
+                "description": "Schema ml — requiere header Accept-Profile: ml"
+              }
+            },
+            {
+              "name": "GET ml.wc_team_elo — ELO ratings actuales",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "apikey",        "value": "{{SB_KEY}}" },
+                  { "key": "Authorization", "value": "Bearer {{SB_KEY}}" },
+                  { "key": "Accept-Profile", "value": "ml" }
+                ],
+                "url": {
+                  "raw": "{{SB_URL}}/rest/v1/wc_team_elo?order=elo_rating.desc&limit=48",
+                  "host": ["{{SB_URL}}"],
+                  "path": ["rest", "v1", "wc_team_elo"],
+                  "query": [
+                    { "key": "order", "value": "elo_rating.desc" },
+                    { "key": "limit", "value": "48" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET ml.wc_match_history — Historial WC",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "apikey",        "value": "{{SB_KEY}}" },
+                  { "key": "Authorization", "value": "Bearer {{SB_KEY}}" },
+                  { "key": "Accept-Profile", "value": "ml" }
+                ],
+                "url": {
+                  "raw": "{{SB_URL}}/rest/v1/wc_match_history?order=match_date.desc&limit=20",
+                  "host": ["{{SB_URL}}"],
+                  "path": ["rest", "v1", "wc_match_history"],
+                  "query": [
+                    { "key": "order", "value": "match_date.desc" },
+                    { "key": "limit", "value": "20" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET ml.team_season_xg — xG por equipo",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "apikey",        "value": "{{SB_KEY}}" },
+                  { "key": "Authorization", "value": "Bearer {{SB_KEY}}" },
+                  { "key": "Accept-Profile", "value": "ml" }
+                ],
+                "url": {
+                  "raw": "{{SB_URL}}/rest/v1/team_season_xg?order=xg.desc&limit=30",
+                  "host": ["{{SB_URL}}"],
+                  "path": ["rest", "v1", "team_season_xg"],
+                  "query": [
+                    { "key": "order", "value": "xg.desc" },
+                    { "key": "limit", "value": "30" }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+  ]
+}

@@ -1,0 +1,1589 @@
+{
+  "info": {
+    "name": "API-Football Ultra — WC2026 Betting Analytics",
+    "description": "Colección completa API-Football Pro/Ultra (v3.football.api-sports.io).\n\nVariables:\n  BASE_URL     → https://v3.football.api-sports.io\n  API_KEY      → tu x-apisports-key (reemplazar cuando llegue)\n  WC_LEAGUE    → 1  (FIFA World Cup en API-Football)\n  WC_SEASON    → 2026\n  FIXTURE_ID   → ID de un partido específico\n  TEAM_ID      → ID de equipo\n  PLAYER_ID    → ID de jugador\n\nPlan requerido: Pro / Ultra ($29/mes) para odds en vivo y bets.\nDocs: https://www.api-football.com/documentation-v3",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "api-football-wc2026-collection"
+  },
+  "variable": [
+    { "key": "BASE_URL",   "value": "https://v3.football.api-sports.io", "type": "string" },
+    { "key": "API_KEY",    "value": "TU_API_KEY_AQUI",                    "type": "string", "description": "Reemplazar con tu x-apisports-key cuando llegue" },
+    { "key": "WC_LEAGUE",  "value": "1",                                  "type": "string", "description": "FIFA World Cup league ID" },
+    { "key": "WC_SEASON",  "value": "2026",                               "type": "string" },
+    { "key": "FIXTURE_ID", "value": "1208490",                            "type": "string", "description": "Ejemplo: France vs Sweden WC2026" },
+    { "key": "TEAM_ID",    "value": "2",                                  "type": "string", "description": "France = 2 en API-Football" },
+    { "key": "PLAYER_ID",  "value": "276",                                "type": "string", "description": "Mbappe = 276" },
+    { "key": "BOOKMAKER_ID","value": "6",                                 "type": "string", "description": "Bet365 = 6" },
+    { "key": "COACH_ID",   "value": "1",                                  "type": "string" }
+  ],
+  "item": [
+
+    {
+      "name": "🔑 Account & Status",
+      "item": [
+        {
+          "name": "GET Status / Quota",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/status",
+              "host": ["{{BASE_URL}}"],
+              "path": ["status"]
+            },
+            "description": "Verifica tu API key, plan activo y requests restantes del día."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "📅 Seasons",
+      "item": [
+        {
+          "name": "GET All Seasons",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/leagues/seasons",
+              "host": ["{{BASE_URL}}"],
+              "path": ["leagues", "seasons"]
+            },
+            "description": "Lista de todas las temporadas disponibles."
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🌍 Countries",
+      "item": [
+        {
+          "name": "GET All Countries",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/countries",
+              "host": ["{{BASE_URL}}"],
+              "path": ["countries"]
+            }
+          }
+        },
+        {
+          "name": "GET Country by Name",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/countries?name=France",
+              "host": ["{{BASE_URL}}"],
+              "path": ["countries"],
+              "query": [{ "key": "name", "value": "France" }]
+            }
+          }
+        },
+        {
+          "name": "GET Country by Code",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/countries?code=FR",
+              "host": ["{{BASE_URL}}"],
+              "path": ["countries"],
+              "query": [{ "key": "code", "value": "FR" }]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🏆 Leagues",
+      "item": [
+        {
+          "name": "GET World Cup 2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/leagues?id={{WC_LEAGUE}}&season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["leagues"],
+              "query": [
+                { "key": "id",     "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" }
+              ]
+            },
+            "description": "Liga/Torneo del Mundial 2026."
+          }
+        },
+        {
+          "name": "GET Leagues by Country",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/leagues?country=France&season=2024",
+              "host": ["{{BASE_URL}}"],
+              "path": ["leagues"],
+              "query": [
+                { "key": "country", "value": "France" },
+                { "key": "season",  "value": "2024" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Leagues Currently Active",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/leagues?current=true",
+              "host": ["{{BASE_URL}}"],
+              "path": ["leagues"],
+              "query": [{ "key": "current", "value": "true" }]
+            }
+          }
+        },
+        {
+          "name": "GET All Leagues — Season 2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/leagues?season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["leagues"],
+              "query": [{ "key": "season", "value": "{{WC_SEASON}}" }]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "⚽ Fixtures",
+      "item": [
+        {
+          "name": "GET Fixture by ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?id={{FIXTURE_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [{ "key": "id", "value": "{{FIXTURE_ID}}" }]
+            },
+            "description": "Detalle completo de un partido por su ID."
+          }
+        },
+        {
+          "name": "GET WC2026 Fixtures — Today",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?league={{WC_LEAGUE}}&season={{WC_SEASON}}&date=2026-06-30",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" },
+                { "key": "date",   "value": "2026-06-30" }
+              ]
+            },
+            "description": "Ajustar fecha según el día de consulta."
+          }
+        },
+        {
+          "name": "GET WC2026 All Fixtures",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Fixtures by Team",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?team={{TEAM_ID}}&season={{WC_SEASON}}&league={{WC_LEAGUE}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "team",   "value": "{{TEAM_ID}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" },
+                { "key": "league", "value": "{{WC_LEAGUE}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Fixtures by Date Range",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?league={{WC_LEAGUE}}&season={{WC_SEASON}}&from=2026-06-14&to=2026-07-19",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" },
+                { "key": "from",   "value": "2026-06-14" },
+                { "key": "to",     "value": "2026-07-19" }
+              ]
+            },
+            "description": "Rango completo del Mundial 2026 (14 Jun – 19 Jul)."
+          }
+        },
+        {
+          "name": "GET Next 5 Fixtures",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?league={{WC_LEAGUE}}&next=5",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "next",   "value": "5" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Last 5 Fixtures",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?league={{WC_LEAGUE}}&last=5",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "last",   "value": "5" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Fixtures — Status: Not Started (NS)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?league={{WC_LEAGUE}}&season={{WC_SEASON}}&status=NS",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" },
+                { "key": "status", "value": "NS" }
+              ],
+              "description": "Statuses: NS | 1H | HT | 2H | ET | P | FT | AET | PEN | PST | CANC"
+            }
+          }
+        },
+
+        {
+          "name": "Events (Goles, Tarjetas, Subs)",
+          "item": [
+            {
+              "name": "GET Fixture Events",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/events?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "events"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                },
+                "description": "Todos los eventos del partido: goles, tarjetas, sustituciones."
+              }
+            },
+            {
+              "name": "GET Fixture Events — Goals Only",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/events?fixture={{FIXTURE_ID}}&type=Goal",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "events"],
+                  "query": [
+                    { "key": "fixture", "value": "{{FIXTURE_ID}}" },
+                    { "key": "type",    "value": "Goal" }
+                  ],
+                  "description": "type: Goal | Card | subst | Var"
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Lineups",
+          "item": [
+            {
+              "name": "GET Fixture Lineups",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/lineups?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "lineups"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                },
+                "description": "Alineaciones titulares y suplentes + formación táctica."
+              }
+            },
+            {
+              "name": "GET Fixture Lineups — Team Filter",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/lineups?fixture={{FIXTURE_ID}}&team={{TEAM_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "lineups"],
+                  "query": [
+                    { "key": "fixture", "value": "{{FIXTURE_ID}}" },
+                    { "key": "team",    "value": "{{TEAM_ID}}" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Fixtures Statistics",
+          "item": [
+            {
+              "name": "GET Fixture Statistics",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/statistics?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "statistics"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                },
+                "description": "Posesión, tiros, córners, faltas, tarjetas — por equipo."
+              }
+            },
+            {
+              "name": "GET Fixture Statistics — Team Filter",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/statistics?fixture={{FIXTURE_ID}}&team={{TEAM_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "statistics"],
+                  "query": [
+                    { "key": "fixture", "value": "{{FIXTURE_ID}}" },
+                    { "key": "team",    "value": "{{TEAM_ID}}" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Fixture Players Stats",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/players?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "players"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                },
+                "description": "Estadísticas individuales por jugador en el partido."
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Predictions",
+          "item": [
+            {
+              "name": "GET Predictions by Fixture",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/predictions?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["predictions"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                },
+                "description": "Predicción automática API-Football: winner, advice, win%, under/over, goals."
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Injuries",
+          "item": [
+            {
+              "name": "GET Injuries by Fixture",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/injuries?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["injuries"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                }
+              }
+            },
+            {
+              "name": "GET Injuries by League + Season",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/injuries?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["injuries"],
+                  "query": [
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Injuries by Team",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/injuries?team={{TEAM_ID}}&season={{WC_SEASON}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["injuries"],
+                  "query": [
+                    { "key": "team",   "value": "{{TEAM_ID}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "H2H — Head to Head",
+          "item": [
+            {
+              "name": "GET H2H — France vs Sweden (últimos)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/headtohead?h2h=2-808&last=10",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "headtohead"],
+                  "query": [
+                    { "key": "h2h",  "value": "2-808", "description": "teamID1-teamID2" },
+                    { "key": "last", "value": "10" }
+                  ],
+                  "description": "h2h = team1_id-team2_id. Ajustar IDs según el partido."
+                }
+              }
+            },
+            {
+              "name": "GET H2H — By Season",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/headtohead?h2h={{TEAM_ID}}-808&season={{WC_SEASON}}&league={{WC_LEAGUE}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "headtohead"],
+                  "query": [
+                    { "key": "h2h",    "value": "{{TEAM_ID}}-808" },
+                    { "key": "season", "value": "{{WC_SEASON}}" },
+                    { "key": "league", "value": "{{WC_LEAGUE}}" }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "🔴 Live",
+      "item": [
+        {
+          "name": "GET Live — All Leagues",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?live=all",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [{ "key": "live", "value": "all" }]
+            },
+            "description": "Todos los partidos en vivo en este momento."
+          }
+        },
+        {
+          "name": "GET Live — WC2026 Only",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?live={{WC_LEAGUE}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [{ "key": "live", "value": "{{WC_LEAGUE}}" }]
+            },
+            "description": "Partidos WC2026 en vivo (filtrado por league ID)."
+          }
+        },
+        {
+          "name": "GET Live Fixture Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/fixtures?id={{FIXTURE_ID}}&live=all",
+              "host": ["{{BASE_URL}}"],
+              "path": ["fixtures"],
+              "query": [
+                { "key": "id",   "value": "{{FIXTURE_ID}}" },
+                { "key": "live", "value": "all" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "💰 Odds & Apuestas",
+      "item": [
+        {
+          "name": "Pre-match Odds",
+          "item": [
+            {
+              "name": "GET Odds — Fixture (todos los books)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                },
+                "description": "Cuotas pre-partido de todos los bookmakers para este fixture."
+              }
+            },
+            {
+              "name": "GET Odds — Fixture + Bet365",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds?fixture={{FIXTURE_ID}}&bookmaker={{BOOKMAKER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds"],
+                  "query": [
+                    { "key": "fixture",    "value": "{{FIXTURE_ID}}" },
+                    { "key": "bookmaker", "value": "{{BOOKMAKER_ID}}" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Odds — 1X2 (Match Winner)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds?fixture={{FIXTURE_ID}}&bet=1",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds"],
+                  "query": [
+                    { "key": "fixture", "value": "{{FIXTURE_ID}}" },
+                    { "key": "bet",     "value": "1", "description": "bet=1: Match Winner 1X2" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Odds — Over/Under 2.5",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds?fixture={{FIXTURE_ID}}&bet=5",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds"],
+                  "query": [
+                    { "key": "fixture", "value": "{{FIXTURE_ID}}" },
+                    { "key": "bet",     "value": "5", "description": "bet=5: Goals Over/Under" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Odds — BTTS (Both Teams Score)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds?fixture={{FIXTURE_ID}}&bet=8",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds"],
+                  "query": [
+                    { "key": "fixture", "value": "{{FIXTURE_ID}}" },
+                    { "key": "bet",     "value": "8", "description": "bet=8: Both Teams Score" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Odds — Double Chance",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds?fixture={{FIXTURE_ID}}&bet=2",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds"],
+                  "query": [
+                    { "key": "fixture", "value": "{{FIXTURE_ID}}" },
+                    { "key": "bet",     "value": "2", "description": "bet=2: Double Chance (1X, X2, 12)" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Odds — WC League / Fecha",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds?league={{WC_LEAGUE}}&season={{WC_SEASON}}&date=2026-06-30",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds"],
+                  "query": [
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" },
+                    { "key": "date",   "value": "2026-06-30" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Live Odds",
+          "item": [
+            {
+              "name": "GET Live Odds — Fixture",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds/live?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds", "live"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                },
+                "description": "Cuotas en vivo (requiere plan Pro/Ultra)."
+              }
+            },
+            {
+              "name": "GET Live Odds — WC League",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds/live?league={{WC_LEAGUE}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds", "live"],
+                  "query": [{ "key": "league", "value": "{{WC_LEAGUE}}" }]
+                }
+              }
+            },
+            {
+              "name": "GET Live Odds — Bet Types",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds/live/bets",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds", "live", "bets"]
+                },
+                "description": "Lista de tipos de apuesta disponibles para odds en vivo."
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Bets Catalog",
+          "item": [
+            {
+              "name": "GET All Bet Types",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds/bets",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds", "bets"]
+                },
+                "description": "Catálogo completo de tipos de apuesta: 1=Match Winner, 2=Double Chance, 5=Goals O/U, 8=BTTS, etc."
+              }
+            },
+            {
+              "name": "GET Bet Type by ID",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds/bets?id=1",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds", "bets"],
+                  "query": [{ "key": "id", "value": "1" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Bookmakers",
+          "item": [
+            {
+              "name": "GET All Bookmakers",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds/bookmakers",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds", "bookmakers"]
+                },
+                "description": "IDs importantes: 6=Bet365, 8=Betfair, 11=1xBet, 16=Unibet"
+              }
+            },
+            {
+              "name": "GET Bookmaker by ID",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds/bookmakers?id={{BOOKMAKER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds", "bookmakers"],
+                  "query": [{ "key": "id", "value": "{{BOOKMAKER_ID}}" }]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "📊 Standings",
+      "item": [
+        {
+          "name": "GET WC2026 Standings (Grupos)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/standings?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["standings"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" }
+              ]
+            },
+            "description": "Tabla de posiciones por grupo en el Mundial."
+          }
+        },
+        {
+          "name": "GET Standings by Team",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/standings?league={{WC_LEAGUE}}&season={{WC_SEASON}}&team={{TEAM_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["standings"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" },
+                { "key": "team",   "value": "{{TEAM_ID}}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🏟️ Venues",
+      "item": [
+        {
+          "name": "GET Venue by ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/venues?id=556",
+              "host": ["{{BASE_URL}}"],
+              "path": ["venues"],
+              "query": [{ "key": "id", "value": "556" }]
+            }
+          }
+        },
+        {
+          "name": "GET Venues by Country",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/venues?country=USA",
+              "host": ["{{BASE_URL}}"],
+              "path": ["venues"],
+              "query": [{ "key": "country", "value": "USA" }],
+              "description": "Estadios WC2026 en USA (sede principal)."
+            }
+          }
+        },
+        {
+          "name": "GET Venue by Name",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/venues?name=MetLife+Stadium",
+              "host": ["{{BASE_URL}}"],
+              "path": ["venues"],
+              "query": [{ "key": "name", "value": "MetLife Stadium" }]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🥅 Top Scorers & Asistencias",
+      "item": [
+        {
+          "name": "GET Top Scorers WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/players/topscorers?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["players", "topscorers"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Top Assists WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/players/topassists?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["players", "topassists"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Top Yellow Cards WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/players/topyellowcards?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["players", "topyellowcards"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET Top Red Cards WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/players/topredcards?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["players", "topredcards"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "👤 Players",
+      "item": [
+        {
+          "name": "Players Statistics",
+          "item": [
+            {
+              "name": "GET Player Stats (WC2026)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players?id={{PLAYER_ID}}&season={{WC_SEASON}}&league={{WC_LEAGUE}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players"],
+                  "query": [
+                    { "key": "id",     "value": "{{PLAYER_ID}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" },
+                    { "key": "league", "value": "{{WC_LEAGUE}}" }
+                  ]
+                },
+                "description": "Estadísticas completas del jugador en el torneo."
+              }
+            },
+            {
+              "name": "GET Players by Team (WC2026)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players?team={{TEAM_ID}}&season={{WC_SEASON}}&league={{WC_LEAGUE}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players"],
+                  "query": [
+                    { "key": "team",   "value": "{{TEAM_ID}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" },
+                    { "key": "league", "value": "{{WC_LEAGUE}}" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Players by League + Season",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players?league={{WC_LEAGUE}}&season={{WC_SEASON}}&page=1",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players"],
+                  "query": [
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" },
+                    { "key": "page",   "value": "1" }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Players Profiles",
+          "item": [
+            {
+              "name": "GET Player Profile by ID",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players/profiles?player={{PLAYER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players", "profiles"],
+                  "query": [{ "key": "player", "value": "{{PLAYER_ID}}" }]
+                },
+                "description": "Perfil completo: nacionalidad, altura, posición, pie dominante."
+              }
+            },
+            {
+              "name": "GET Player Search by Name",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players?search=Mbappe&league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players"],
+                  "query": [
+                    { "key": "search", "value": "Mbappe" },
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "GET Player Seasons Available",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players/seasons?player={{PLAYER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players", "seasons"],
+                  "query": [{ "key": "player", "value": "{{PLAYER_ID}}" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Players Teams",
+          "item": [
+            {
+              "name": "GET Teams of a Player (histórico)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players/teams?player={{PLAYER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players", "teams"],
+                  "query": [{ "key": "player", "value": "{{PLAYER_ID}}" }]
+                },
+                "description": "Historial de equipos por temporada."
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "🛡️ Teams",
+      "item": [
+        {
+          "name": "GET Team by ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/teams?id={{TEAM_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["teams"],
+              "query": [{ "key": "id", "value": "{{TEAM_ID}}" }]
+            }
+          }
+        },
+        {
+          "name": "GET Teams in WC2026",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/teams?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["teams"],
+              "query": [
+                { "key": "league", "value": "{{WC_LEAGUE}}" },
+                { "key": "season", "value": "{{WC_SEASON}}" }
+              ]
+            },
+            "description": "Lista de las 48 selecciones del Mundial 2026."
+          }
+        },
+        {
+          "name": "GET Team Search by Name",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/teams?name=France",
+              "host": ["{{BASE_URL}}"],
+              "path": ["teams"],
+              "query": [{ "key": "name", "value": "France" }]
+            }
+          }
+        },
+
+        {
+          "name": "Teams Statistics",
+          "item": [
+            {
+              "name": "GET Team Statistics WC2026",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/teams/statistics?league={{WC_LEAGUE}}&season={{WC_SEASON}}&team={{TEAM_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["teams", "statistics"],
+                  "query": [
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" },
+                    { "key": "team",   "value": "{{TEAM_ID}}" }
+                  ]
+                },
+                "description": "Estadísticas agregadas: goles marcados/recibidos, BTTS%, clean sheets, forma."
+              }
+            },
+            {
+              "name": "GET Team Seasons Available",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/teams/seasons?team={{TEAM_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["teams", "seasons"],
+                  "query": [{ "key": "team", "value": "{{TEAM_ID}}" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Players Squads",
+          "item": [
+            {
+              "name": "GET Squad by Team",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players/squads?team={{TEAM_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players", "squads"],
+                  "query": [{ "key": "team", "value": "{{TEAM_ID}}" }]
+                },
+                "description": "Convocatoria actual del equipo (lista de jugadores + posición)."
+              }
+            },
+            {
+              "name": "GET Squad by Player",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players/squads?player={{PLAYER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players", "squads"],
+                  "query": [{ "key": "player", "value": "{{PLAYER_ID}}" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Transfers",
+          "item": [
+            {
+              "name": "GET Transfers by Player",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/transfers?player={{PLAYER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["transfers"],
+                  "query": [{ "key": "player", "value": "{{PLAYER_ID}}" }]
+                }
+              }
+            },
+            {
+              "name": "GET Transfers by Team",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/transfers?team={{TEAM_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["transfers"],
+                  "query": [{ "key": "team", "value": "{{TEAM_ID}}" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Trophies",
+          "item": [
+            {
+              "name": "GET Trophies by Player",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/trophies?player={{PLAYER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["trophies"],
+                  "query": [{ "key": "player", "value": "{{PLAYER_ID}}" }]
+                }
+              }
+            },
+            {
+              "name": "GET Trophies by Coach",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/trophies?coach={{COACH_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["trophies"],
+                  "query": [{ "key": "coach", "value": "{{COACH_ID}}" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "Sidelined",
+          "item": [
+            {
+              "name": "GET Sidelined by Player",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/sidelined?player={{PLAYER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["sidelined"],
+                  "query": [{ "key": "player", "value": "{{PLAYER_ID}}" }]
+                },
+                "description": "Historial de lesiones/suspensiones del jugador."
+              }
+            },
+            {
+              "name": "GET Sidelined by Coach",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/sidelined?coach={{COACH_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["sidelined"],
+                  "query": [{ "key": "coach", "value": "{{COACH_ID}}" }]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "🧑‍💼 Coaches",
+      "item": [
+        {
+          "name": "GET Coach by ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/coachs?id={{COACH_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["coachs"],
+              "query": [{ "key": "id", "value": "{{COACH_ID}}" }]
+            }
+          }
+        },
+        {
+          "name": "GET Coach by Team",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/coachs?team={{TEAM_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["coachs"],
+              "query": [{ "key": "team", "value": "{{TEAM_ID}}" }]
+            },
+            "description": "DT actual del equipo + historial de carrera."
+          }
+        },
+        {
+          "name": "GET Coach Search by Name",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+            "url": {
+              "raw": "{{BASE_URL}}/coachs?search=Deschamps",
+              "host": ["{{BASE_URL}}"],
+              "path": ["coachs"],
+              "query": [{ "key": "search", "value": "Deschamps" }]
+            }
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "🔧 Flujos Operativos WC2026",
+      "description": "Flujos de consulta compuestos que el sistema usa en producción.",
+      "item": [
+        {
+          "name": "FLUJO 1 — Pre-partido completo",
+          "item": [
+            {
+              "name": "1a. Fixtures del día",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures?league={{WC_LEAGUE}}&season={{WC_SEASON}}&date=2026-06-30",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures"],
+                  "query": [
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" },
+                    { "key": "date",   "value": "2026-06-30" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "1b. Odds 1X2 + Over/Under",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds?fixture={{FIXTURE_ID}}&bookmaker={{BOOKMAKER_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds"],
+                  "query": [
+                    { "key": "fixture",   "value": "{{FIXTURE_ID}}" },
+                    { "key": "bookmaker", "value": "{{BOOKMAKER_ID}}" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "1c. Lesiones del partido",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/injuries?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["injuries"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                }
+              }
+            },
+            {
+              "name": "1d. H2H últimos 10",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/headtohead?h2h=2-808&last=10",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "headtohead"],
+                  "query": [
+                    { "key": "h2h",  "value": "2-808" },
+                    { "key": "last", "value": "10" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "1e. Prediction",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/predictions?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["predictions"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "FLUJO 2 — Monitoreo en vivo",
+          "item": [
+            {
+              "name": "2a. Partidos WC en vivo",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures?live={{WC_LEAGUE}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures"],
+                  "query": [{ "key": "live", "value": "{{WC_LEAGUE}}" }]
+                }
+              }
+            },
+            {
+              "name": "2b. Live odds del partido",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/odds/live?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["odds", "live"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                }
+              }
+            },
+            {
+              "name": "2c. Eventos en vivo",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/events?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "events"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                }
+              }
+            },
+            {
+              "name": "2d. Stats en tiempo real",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/fixtures/statistics?fixture={{FIXTURE_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["fixtures", "statistics"],
+                  "query": [{ "key": "fixture", "value": "{{FIXTURE_ID}}" }]
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "name": "FLUJO 3 — Análisis equipo/jugador",
+          "item": [
+            {
+              "name": "3a. Stats del equipo en WC2026",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/teams/statistics?league={{WC_LEAGUE}}&season={{WC_SEASON}}&team={{TEAM_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["teams", "statistics"],
+                  "query": [
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" },
+                    { "key": "team",   "value": "{{TEAM_ID}}" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "3b. Convocatoria (squad)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players/squads?team={{TEAM_ID}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players", "squads"],
+                  "query": [{ "key": "team", "value": "{{TEAM_ID}}" }]
+                }
+              }
+            },
+            {
+              "name": "3c. Top goleadores del torneo",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/players/topscorers?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["players", "topscorers"],
+                  "query": [
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "3d. Standings (tabla de grupos)",
+              "request": {
+                "method": "GET",
+                "header": [{ "key": "x-apisports-key", "value": "{{API_KEY}}" }],
+                "url": {
+                  "raw": "{{BASE_URL}}/standings?league={{WC_LEAGUE}}&season={{WC_SEASON}}",
+                  "host": ["{{BASE_URL}}"],
+                  "path": ["standings"],
+                  "query": [
+                    { "key": "league", "value": "{{WC_LEAGUE}}" },
+                    { "key": "season", "value": "{{WC_SEASON}}" }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+  ]
+}

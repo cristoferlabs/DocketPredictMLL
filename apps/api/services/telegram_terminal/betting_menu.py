@@ -54,6 +54,9 @@ def _build_market_rows(
     team2: str,
     odds_event: dict | None,
     ev_opps: list[EvOpportunity],
+    home_team_stats=None,
+    away_team_stats=None,
+    stats_odds=None,
 ) -> list[MarketRow]:
     """
     Build one row per selectable outcome across all markets.
@@ -149,7 +152,6 @@ def _build_market_rows(
 
         if mtype == "BTTS":
             fo = btts_yes_fo if label == "BTTS Sí" else btts_no_fo
-            # BTTS has no direct market quote — EV = 0 by definition
             rows.append(MarketRow(
                 rank=0, label=label, model_prob=model_prob,
                 market_odds=None, fair_odds=fo, market_implied=None,
@@ -160,8 +162,64 @@ def _build_market_rows(
             if r:
                 rows.append(r)
 
-    # Rank by EV descending (when market available), then model prob descending
-    rows.sort(key=lambda r: (-r.ev_pct if r.has_market else 0, -r.model_prob))
+    # ── Stats markets (Corners / SoT / Cards) — real API-Football odds when available ──
+    try:
+        from apps.api.services.match_stats_engine import predict_stats_markets
+        stats = predict_stats_markets(
+            model.lambda_home, model.lambda_away, 1500.0, 1500.0,
+            home_team_stats=home_team_stats,
+            away_team_stats=away_team_stats,
+        )
+        # (label, model_prob, stats_odds_attribute)
+        stats_candidates: list[tuple[str, float, str]] = [
+            ("Corners Over 9.5",   stats.corners_over_95,  "corners_over_95"),
+            ("Corners Under 9.5",  stats.corners_under_95, "corners_under_95"),
+            ("Corners Over 10.5",  stats.corners_over_105, "corners_over_105"),
+            ("Corners Under 8.5",  stats.corners_under_85, "corners_under_85"),
+            ("SoT Over 8.5",       stats.sot_over_85,      "sot_over_85"),
+            ("SoT Under 8.5",      stats.sot_under_85,     "sot_under_85"),
+            ("SoT Over 7.5",       stats.sot_over_75,      "sot_over_75"),
+            ("Tarjetas Over 3.5",  stats.cards_over_35,    "cards_over_35"),
+            ("Tarjetas Under 3.5", stats.cards_under_35,   "cards_under_35"),
+            ("Tarjetas Over 2.5",  stats.cards_over_25,    "cards_over_25"),
+            ("Tarjetas Over 4.5",  stats.cards_over_45,    "cards_over_45"),
+        ]
+        for label, prob, so_attr in stats_candidates:
+            if not prob or prob <= 0:
+                continue
+            fair_o = round(1.0 / prob, 2)
+            raw_o: float = 0.0
+            if stats_odds is not None:
+                raw_o = getattr(stats_odds, so_attr, None) or 0.0
+            has_mkt = raw_o > 1.0
+            ev_pct = 0.0
+            ev_raw_pct: float | None = None
+            market_implied: float | None = None
+            if has_mkt:
+                ev_pct = round((prob * raw_o - 1) * 100, 1)
+                ev_raw_pct = ev_pct
+                market_implied = round(1.0 / raw_o, 4)
+            rows.append(MarketRow(
+                rank=0, label=label, model_prob=prob,
+                market_odds=raw_o if has_mkt else None,
+                fair_odds=fair_o,
+                market_implied=market_implied,
+                ev_pct=ev_pct,
+                ev_raw_pct=ev_raw_pct,
+                has_market=has_mkt,
+                market_type="STATS",
+            ))
+    except Exception:
+        pass
+
+    # Sort: all markets with real EV first (sorted by EV desc), then no-market rows by prob
+    def _sort_key(r: MarketRow) -> tuple:
+        if r.has_market:
+            return (0, -r.ev_pct, -r.model_prob)
+        if r.market_type == "STATS":
+            return (2, 0, -r.model_prob)
+        return (1, 0, -r.model_prob)
+    rows.sort(key=_sort_key)
     for i, r in enumerate(rows, 1):
         r.rank = i
     return rows
@@ -272,9 +330,12 @@ def format_betting_menu(
     combos: list[SafeCombo],
     dc_picks: list[DCPick] | None = None,
     sharp: SharpBetResult | None = None,
-    max_individual: int = 8,
+    max_individual: int = 14,
     max_combos: int = 3,
     live_result: "LivePoissonResult | None" = None,
+    home_team_stats=None,
+    away_team_stats=None,
+    stats_odds=None,
 ) -> str:
     """Full betting menu — DC section + individual markets + safe combos + EV recommendation."""
     t1 = analysis.team1
@@ -317,6 +378,14 @@ def format_betting_menu(
 
     lines += [_SEP, ""]
 
+    # ── 0b. Live stats overlay (when match in progress) ───────────────────────
+    if live_result and hasattr(live_result, '_live_stats') and live_result._live_stats:
+        from apps.api.services.match_stats_engine import live_stats_display
+        stat_lines = live_stats_display(live_result._live_stats, t1, t2)
+        if stat_lines:
+            lines += stat_lines
+            lines += ["", _SEP, ""]
+
     # ── 0. DC section (priority) ───────────────────────────────────────────────
     if dc_picks:
         lines += _format_dc_section(dc_picks)
@@ -328,12 +397,15 @@ def format_betting_menu(
     lines.append("🎯 MERCADOS INDIVIDUALES")
     lines.append("")
 
-    top_rows = market_rows[:max_individual]
-    if not top_rows:
+    goal_rows = [r for r in market_rows if r.market_type != "STATS"]
+    stats_rows = [r for r in market_rows if r.market_type == "STATS"]
+
+    top_goal_rows = goal_rows[:max_individual]
+    if not top_goal_rows:
         lines.append("Sin datos de mercado disponibles.")
     else:
-        has_any_mkt = any(r.has_market for r in top_rows)
-        for r in top_rows:
+        has_any_mkt = any(r.has_market for r in top_goal_rows)
+        for r in top_goal_rows:
             odds_s = _odds_tag(r)
             ev_s = _ev_tag(r.ev_pct, r.has_market, r.ev_raw_pct)
             ev_flag = "✓" if (r.ev_raw_pct or r.ev_pct) > 0 else "·"
@@ -344,7 +416,19 @@ def format_betting_menu(
 
         if not has_any_mkt:
             lines.append("")
-            lines.append("  (sin cuotas de mercado — EV basado en fair odds modelo)")
+            lines.append("  (sin cuotas mkt — usar fair odds del modelo como referencia)")
+
+    # ── Stats markets always shown in dedicated subsection ─────────────────────
+    if stats_rows:
+        lines += ["", "📐 CORNERS / TIROS AL ARCO / TARJETAS", ""]
+        for r in stats_rows[:7]:
+            odds_s = _odds_tag(r)
+            prob_s = f"{r.model_prob * 100:.1f}%"
+            ev_s = _ev_tag(r.ev_pct, r.has_market, r.ev_raw_pct) if r.has_market else ""
+            ev_flag = "✓" if r.has_market and r.ev_pct > 0 else "·"
+            lines.append(f"{ev_flag}  {r.label:<22} {prob_s:<7} {odds_s:<9}{ev_s}")
+        _src = "API-Football WC2026" if (home_team_stats and away_team_stats) else "Poisson WC avg"
+        lines.append(f"  ({_src})")
 
     lines += ["", _SEP, ""]
 
@@ -388,7 +472,9 @@ def format_betting_menu(
     lines.append("📈 COMPARATIVA EV")
     lines.append("")
 
-    best_ind = market_rows[0] if market_rows else None
+    # Global best: pick the highest-EV row across ALL market types (including STATS)
+    rows_with_market = [r for r in market_rows if r.has_market]
+    best_ind = rows_with_market[0] if rows_with_market else (market_rows[0] if market_rows else None)
     best_combo = combos[0] if combos else None
 
     if best_ind:
@@ -587,6 +673,10 @@ def build_betting_menu(
     sharp: SharpBetResult | None,
     odds_event: dict | None,
     live_result: "LivePoissonResult | None" = None,
+    home_team_stats=None,
+    away_team_stats=None,
+    stats_odds=None,
+    db=None,
 ) -> str:
     """
     Build the full betting menu text for a given match bundle.
@@ -608,7 +698,10 @@ def build_betting_menu(
 
     dc_picks = evaluate_dc(display_model, ev_opps, analysis.team1, analysis.team2)
     market_rows = _build_market_rows(
-        display_model, analysis.team1, analysis.team2, odds_event, ev_opps
+        display_model, analysis.team1, analysis.team2, odds_event, ev_opps,
+        home_team_stats=home_team_stats,
+        away_team_stats=away_team_stats,
+        stats_odds=stats_odds,
     )
 
     if live_result is not None:
@@ -626,6 +719,14 @@ def build_betting_menu(
         sharp=sharp,
     )
 
+    # Calibration tracking — log pre-match picks with real odds to ml.picks_log
+    if db is not None and live_result is None:
+        try:
+            from apps.api.services.picks_tracker import log_market_rows
+            log_market_rows(db, analysis, market_rows)
+        except Exception:
+            pass
+
     return format_betting_menu(
         analysis=analysis,
         market_rows=market_rows,
@@ -633,4 +734,7 @@ def build_betting_menu(
         dc_picks=dc_picks,
         sharp=sharp,
         live_result=live_result,
+        home_team_stats=home_team_stats,
+        away_team_stats=away_team_stats,
+        stats_odds=stats_odds,
     )
